@@ -1,0 +1,26 @@
+{
+  "name": "job_skill_platform-backend",
+  "version": "1.0.0",
+  "description": "made backend",
+  "license": "ISC",
+  "author": "pasindu",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "okay"
+  },
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.1",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "multer": "^2.1.1",
+    "mysql2": "^3.22.0",
+    "nodemailer": "^8.0.5",
+    "otp-generator": "^4.0.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}
