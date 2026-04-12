@@ -3,8 +3,10 @@ dotenv.config();
 
 const express = require("express");
 const cors = require("cors");
+const path = require("path");
 
 const authRoutes = require("./routes/auth-routes");
+const jobSeekerRoutes = require("./routes/job-seeker-routes");
 
 const app = express();
 
@@ -12,7 +14,10 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
 app.use("/api/auth", authRoutes);
+app.use("/api/job-seeker", jobSeekerRoutes);
 
 app.get("/", (req, res) => {
   res.send("Job Skill Platform API running...");
