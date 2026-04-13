@@ -1325,6 +1325,470 @@ const deleteSkill = (req, res) => {
 };
 
 
+//resume
+
+const uploadResumes = (req, res) => {
+    try {
+        const userId = req.user.id;
+        const files = req.files;
+
+        if (!files || files.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: "No resume files uploaded"
+            });
+        }
+
+        const getProfileQuery = `
+            SELECT id FROM job_seeker_profiles
+            WHERE user_id = ?
+        `;
+
+        db.query(getProfileQuery, [userId], (profileError, profileResult) => {
+            if (profileError) {
+                return res.status(500).json({
+                    success: false,
+                    message: "Database error",
+                    error: profileError.message
+                });
+            }
+
+            if (profileResult.length === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Job seeker profile not found"
+                });
+            }
+
+            const profileId = profileResult[0].id;
+
+            const values = files.map((file) => {
+                const fileUrl = `${req.protocol}://${req.get("host")}/${file.path.replace(/\\/g, "/")}`;
+
+                return [
+                    profileId,
+                    file.filename,
+                    fileUrl,
+                    file.mimetype,
+                    file.size,
+                    false
+                ];
+            });
+
+            const insertResumeQuery = `
+                INSERT INTO resumes
+                (
+                    job_seeker_profile_id,
+                    file_name,
+                    file_url,
+                    file_type,
+                    file_size,
+                    is_primary
+                )
+                VALUES ?
+            `;
+
+            db.query(insertResumeQuery, [values], (insertError, insertResult) => {
+                if (insertError) {
+                    return res.status(500).json({
+                        success: false,
+                        message: "Resume upload failed",
+                        error: insertError.message
+                    });
+                }
+
+                return res.status(201).json({
+                    success: true,
+                    message: "Resumes uploaded successfully",
+                    uploaded_count: insertResult.affectedRows
+                });
+            });
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: "Upload resumes failed",
+            error: error.message
+        });
+    }
+};
+
+const getResumes = (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        const getProfileQuery = `
+            SELECT id FROM job_seeker_profiles
+            WHERE user_id = ?
+        `;
+
+        db.query(getProfileQuery, [userId], (profileError, profileResult) => {
+            if (profileError) {
+                return res.status(500).json({
+                    success: false,
+                    message: "Database error",
+                    error: profileError.message
+                });
+            }
+
+            if (profileResult.length === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Job seeker profile not found"
+                });
+            }
+
+            const profileId = profileResult[0].id;
+
+            const getResumeQuery = `
+                SELECT *
+                FROM resumes
+                WHERE job_seeker_profile_id = ?
+                ORDER BY is_primary DESC, id DESC
+            `;
+
+            db.query(getResumeQuery, [profileId], (resumeError, resumeResult) => {
+                if (resumeError) {
+                    return res.status(500).json({
+                        success: false,
+                        message: "Fetch resumes failed",
+                        error: resumeError.message
+                    });
+                }
+
+                return res.status(200).json({
+                    success: true,
+                    resumes: resumeResult
+                });
+            });
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: "Get resumes failed",
+            error: error.message
+        });
+    }
+};
+
+const setPrimaryResume = (req, res) => {
+    try {
+        const userId = req.user.id;
+        const resumeId = req.params.id;
+
+        const getProfileQuery = `
+            SELECT id FROM job_seeker_profiles
+            WHERE user_id = ?
+        `;
+
+        db.query(getProfileQuery, [userId], (profileError, profileResult) => {
+            if (profileError) {
+                return res.status(500).json({
+                    success: false,
+                    message: "Database error",
+                    error: profileError.message
+                });
+            }
+
+            if (profileResult.length === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Job seeker profile not found"
+                });
+            }
+
+            const profileId = profileResult[0].id;
+
+            const checkResumeQuery = `
+                SELECT * FROM resumes
+                WHERE id = ? AND job_seeker_profile_id = ?
+            `;
+
+            db.query(checkResumeQuery, [resumeId, profileId], (checkError, checkResult) => {
+                if (checkError) {
+                    return res.status(500).json({
+                        success: false,
+                        message: "Resume check failed",
+                        error: checkError.message
+                    });
+                }
+
+                if (checkResult.length === 0) {
+                    return res.status(404).json({
+                        success: false,
+                        message: "Resume not found"
+                    });
+                }
+
+                const resetPrimaryQuery = `
+                    UPDATE resumes
+                    SET is_primary = false
+                    WHERE job_seeker_profile_id = ?
+                `;
+
+                db.query(resetPrimaryQuery, [profileId], (resetError) => {
+                    if (resetError) {
+                        return res.status(500).json({
+                            success: false,
+                            message: "Reset primary resume failed",
+                            error: resetError.message
+                        });
+                    }
+
+                    const setPrimaryQuery = `
+                        UPDATE resumes
+                        SET is_primary = true
+                        WHERE id = ? AND job_seeker_profile_id = ?
+                    `;
+
+                    db.query(setPrimaryQuery, [resumeId, profileId], (setError) => {
+                        if (setError) {
+                            return res.status(500).json({
+                                success: false,
+                                message: "Set primary resume failed",
+                                error: setError.message
+                            });
+                        }
+
+                        return res.status(200).json({
+                            success: true,
+                            message: "Primary resume updated successfully"
+                        });
+                    });
+                });
+            });
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: "Set primary resume failed",
+            error: error.message
+        });
+    }
+};
+
+const updateResume = (req, res) => {
+    try {
+        const userId = req.user.id;
+        const resumeId = req.params.id;
+        const file = req.file;
+
+        if (!file) {
+            return res.status(400).json({
+                success: false,
+                message: "No resume file uploaded"
+            });
+        }
+
+        const getProfileQuery = `
+            SELECT id FROM job_seeker_profiles
+            WHERE user_id = ?
+        `;
+
+        db.query(getProfileQuery, [userId], (profileError, profileResult) => {
+            if (profileError) {
+                return res.status(500).json({
+                    success: false,
+                    message: "Database error",
+                    error: profileError.message
+                });
+            }
+
+            if (profileResult.length === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Job seeker profile not found"
+                });
+            }
+
+            const profileId = profileResult[0].id;
+
+            const getResumeQuery = `
+                SELECT * FROM resumes
+                WHERE id = ? AND job_seeker_profile_id = ?
+            `;
+
+            db.query(getResumeQuery, [resumeId, profileId], (resumeError, resumeResult) => {
+                if (resumeError) {
+                    return res.status(500).json({
+                        success: false,
+                        message: "Resume fetch failed",
+                        error: resumeError.message
+                    });
+                }
+
+                if (resumeResult.length === 0) {
+                    return res.status(404).json({
+                        success: false,
+                        message: "Resume not found"
+                    });
+                }
+
+                const existingResume = resumeResult[0];
+                const oldFileUrl = existingResume.file_url;
+
+                const fileUrl = `${req.protocol}://${req.get("host")}/${file.path.replace(/\\/g, "/")}`;
+
+                const updateResumeQuery = `
+                    UPDATE resumes
+                    SET
+                        file_name = ?,
+                        file_url = ?,
+                        file_type = ?,
+                        file_size = ?
+                    WHERE id = ? AND job_seeker_profile_id = ?
+                `;
+
+                db.query(
+                    updateResumeQuery,
+                    [
+                        file.filename,
+                        fileUrl,
+                        file.mimetype,
+                        file.size,
+                        resumeId,
+                        profileId
+                    ],
+                    (updateError) => {
+                        if (updateError) {
+                            return res.status(500).json({
+                                success: false,
+                                message: "Resume update failed",
+                                error: updateError.message
+                            });
+                        }
+
+                        let oldFilePath = null;
+
+                        try {
+                            const urlObj = new URL(oldFileUrl);
+                            oldFilePath = decodeURIComponent(urlObj.pathname.substring(1));
+                        } catch {
+                            oldFilePath = oldFileUrl;
+                        }
+
+                        if (oldFilePath && fs.existsSync(oldFilePath)) {
+                            fs.unlinkSync(oldFilePath);
+                        }
+
+                        return res.status(200).json({
+                            success: true,
+                            message: "Resume updated successfully"
+                        });
+                    }
+                );
+            });
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: "Update resume failed",
+            error: error.message
+        });
+    }
+};
+
+const deleteResume = (req, res) => {
+    try {
+        const userId = req.user.id;
+        const resumeId = req.params.id;
+
+        const getProfileQuery = `
+            SELECT id FROM job_seeker_profiles
+            WHERE user_id = ?
+        `;
+
+        db.query(getProfileQuery, [userId], (profileError, profileResult) => {
+            if (profileError) {
+                return res.status(500).json({
+                    success: false,
+                    message: "Database error",
+                    error: profileError.message
+                });
+            }
+
+            if (profileResult.length === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Job seeker profile not found"
+                });
+            }
+
+            const profileId = profileResult[0].id;
+
+            const getResumeQuery = `
+                SELECT *
+                FROM resumes
+                WHERE id = ? AND job_seeker_profile_id = ?
+            `;
+
+            db.query(getResumeQuery, [resumeId, profileId], (resumeError, resumeResult) => {
+                if (resumeError) {
+                    return res.status(500).json({
+                        success: false,
+                        message: "Resume fetch failed",
+                        error: resumeError.message
+                    });
+                }
+
+                if (resumeResult.length === 0) {
+                    return res.status(404).json({
+                        success: false,
+                        message: "Resume not found"
+                    });
+                }
+
+                const resume = resumeResult[0];
+                let filePath = null;
+
+                try {
+                    const urlObj = new URL(resume.file_url);
+                    filePath = decodeURIComponent(urlObj.pathname.substring(1));
+                } catch {
+                    filePath = resume.file_url;
+                }
+
+                const deleteResumeQuery = `
+                    DELETE FROM resumes
+                    WHERE id = ? AND job_seeker_profile_id = ?
+                `;
+
+                db.query(deleteResumeQuery, [resumeId, profileId], (deleteError, deleteResult) => {
+                    if (deleteError) {
+                        return res.status(500).json({
+                            success: false,
+                            message: "Resume delete failed",
+                            error: deleteError.message
+                        });
+                    }
+
+                    if (deleteResult.affectedRows === 0) {
+                        return res.status(404).json({
+                            success: false,
+                            message: "Resume not found"
+                        });
+                    }
+
+                    if (filePath && fs.existsSync(filePath)) {
+                        fs.unlinkSync(filePath);
+                    }
+
+                    return res.status(200).json({
+                        success: true,
+                        message: "Resume deleted successfully"
+                    });
+                });
+            });
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: "Delete resume failed",
+            error: error.message
+        });
+    }
+};
+
 
 module.exports = {
     createProfile,
@@ -1342,4 +1806,9 @@ module.exports = {
     getSkills,
     updateSkill,
     deleteSkill,
+    uploadResumes,
+    getResumes,
+    setPrimaryResume,
+    updateResume,
+    deleteResume
 };

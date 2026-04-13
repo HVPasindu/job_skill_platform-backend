@@ -2,7 +2,8 @@ const express = require("express");
 const router = express.Router();
 
 const verifyToken = require("../middleware/auth-middleware");
-const { uploadProfileImage } = require("../middleware/upload");
+const { uploadProfileImage, uploadResumes,
+    uploadSingleResume } = require("../middleware/upload");
 const jobSeekerController = require("../controllers/job-seeker-controller");
 
 
@@ -29,5 +30,12 @@ router.post("/skills", verifyToken, jobSeekerController.addSkill);
 router.get("/skills", verifyToken, jobSeekerController.getSkills);
 router.put("/skills/:id", verifyToken, jobSeekerController.updateSkill);
 router.delete("/skills/:id", verifyToken, jobSeekerController.deleteSkill);
+
+// resumes
+router.post("/resumes", verifyToken, uploadResumes, jobSeekerController.uploadResumes);
+router.get("/resumes", verifyToken, jobSeekerController.getResumes);
+router.put("/resumes/:id/primary", verifyToken, jobSeekerController.setPrimaryResume);
+router.put("/resumes/:id", verifyToken, uploadSingleResume, jobSeekerController.updateResume);
+router.delete("/resumes/:id", verifyToken, jobSeekerController.deleteResume);
 
 module.exports = router;
