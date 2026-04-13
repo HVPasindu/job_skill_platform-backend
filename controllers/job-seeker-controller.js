@@ -223,14 +223,25 @@ const updateProfile = (req, res) => {
                 }
             }
 
+            // 🟢 old values keep karana logic (IMPORTANT)
+            const updatedPhone = phone || existingProfile.phone;
+            const updatedCity = city || existingProfile.city;
+            const updatedCountry = country || existingProfile.country;
+            const updatedBio = bio || existingProfile.bio;
+            const updatedJobRole = preferred_job_role || existingProfile.preferred_job_role;
+            const updatedJobType = preferred_job_type || existingProfile.preferred_job_type;
+            const updatedSalary = expected_salary || existingProfile.expected_salary;
+            const updatedExperience = experience_level || existingProfile.experience_level;
 
+
+            // 🟢 profile completed logic
             const profileCompleted =
-                phone &&
-                    city &&
-                    country &&
-                    preferred_job_role &&
-                    preferred_job_type &&
-                    experience_level
+                updatedPhone &&
+                updatedCity &&
+                updatedCountry &&
+                updatedJobRole &&
+                updatedJobType &&
+                updatedExperience
                     ? true
                     : false;
 
@@ -253,15 +264,15 @@ const updateProfile = (req, res) => {
             db.query(
                 updateProfileQuery,
                 [
-                    phone || null,
+                    updatedPhone,
                     profileImagePath,
-                    city || null,
-                    country || null,
-                    bio || null,
-                    preferred_job_role || null,
-                    preferred_job_type || null,
-                    expected_salary || null,
-                    experience_level || null,
+                    updatedCity,
+                    updatedCountry,
+                    updatedBio,
+                    updatedJobRole,
+                    updatedJobType,
+                    updatedSalary,
+                    updatedExperience,
                     profileCompleted,
                     userId
                 ],
