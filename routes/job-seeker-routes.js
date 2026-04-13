@@ -24,4 +24,10 @@ router.get("/experience", verifyToken, jobSeekerController.getExperiences);
 router.put("/experience/:id", verifyToken, jobSeekerController.updateExperience);
 router.delete("/experience/:id", verifyToken, jobSeekerController.deleteExperience);
 
+//skill
+router.post("/skills", verifyToken, jobSeekerController.addSkill);
+router.get("/skills", verifyToken, jobSeekerController.getSkills);
+router.put("/skills/:id", verifyToken, jobSeekerController.updateSkill);
+router.delete("/skills/:id", verifyToken, jobSeekerController.deleteSkill);
+
 module.exports = router;
