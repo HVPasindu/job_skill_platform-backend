@@ -646,6 +646,261 @@ const deleteEducation = (req, res) => {
 };
 
 
+//Experience
+
+const addExperience = (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        const {
+            job_title,
+            company_name,
+            employment_type,
+            start_date,
+            end_date,
+            is_current,
+            description
+        } = req.body;
+
+        if (!job_title || !company_name || !start_date) {
+            return res.status(400).json({
+                success: false,
+                message: "Job title, company name and start date are required"
+            });
+        }
+
+        const getProfileQuery = `
+            SELECT id FROM job_seeker_profiles WHERE user_id = ?
+        `;
+
+        db.query(getProfileQuery, [userId], (err, result) => {
+            if (err) {
+                return res.status(500).json({ success: false, message: err.message });
+            }
+
+            if (result.length === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Profile not found"
+                });
+            }
+
+            const profileId = result[0].id;
+
+            const insertQuery = `
+                INSERT INTO job_seeker_experiences
+                (job_seeker_profile_id, job_title, company_name, employment_type, start_date, end_date, is_current, description)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `;
+
+            db.query(
+                insertQuery,
+                [
+                    profileId,
+                    job_title,
+                    company_name,
+                    employment_type || null,
+                    start_date,
+                    end_date || null,
+                    is_current ? true : false,
+                    description || null
+                ],
+                (error, result) => {
+                    if (error) {
+                        return res.status(500).json({
+                            success: false,
+                            message: "Add experience failed",
+                            error: error.message
+                        });
+                    }
+
+                    return res.status(201).json({
+                        success: true,
+                        message: "Experience added successfully",
+                        experience_id: result.insertId
+                    });
+                }
+            );
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: "Add experience failed",
+            error: error.message
+        });
+    }
+};
+
+const getExperiences = (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        const getProfileQuery = `
+            SELECT id FROM job_seeker_profiles WHERE user_id = ?
+        `;
+
+        db.query(getProfileQuery, [userId], (err, result) => {
+            if (err) {
+                return res.status(500).json({ success: false, message: err.message });
+            }
+
+            const profileId = result[0].id;
+
+            const query = `
+                SELECT * FROM job_seeker_experiences
+                WHERE job_seeker_profile_id = ?
+                ORDER BY id DESC
+            `;
+
+            db.query(query, [profileId], (error, results) => {
+                if (error) {
+                    return res.status(500).json({
+                        success: false,
+                        message: "Fetch experience failed",
+                        error: error.message
+                    });
+                }
+
+                return res.status(200).json({
+                    success: true,
+                    experiences: results
+                });
+            });
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: "Get experience failed",
+            error: error.message
+        });
+    }
+};
+
+
+const updateExperience = (req, res) => {
+    try {
+        const userId = req.user.id;
+        const expId = req.params.id;
+
+        const {
+            job_title,
+            company_name,
+            employment_type,
+            start_date,
+            end_date,
+            is_current,
+            description
+        } = req.body;
+
+        const getProfileQuery = `SELECT id FROM job_seeker_profiles WHERE user_id = ?`;
+
+        db.query(getProfileQuery, [userId], (err, result) => {
+            if (err) return res.status(500).json({ success: false, message: err.message });
+
+            const profileId = result[0].id;
+
+            const checkQuery = `
+                SELECT * FROM job_seeker_experiences
+                WHERE id = ? AND job_seeker_profile_id = ?
+            `;
+
+            db.query(checkQuery, [expId, profileId], (err2, res2) => {
+                if (res2.length === 0) {
+                    return res.status(404).json({
+                        success: false,
+                        message: "Experience not found"
+                    });
+                }
+
+                const old = res2[0];
+
+                const updateQuery = `
+                    UPDATE job_seeker_experiences
+                    SET 
+                        job_title = ?, 
+                        company_name = ?, 
+                        employment_type = ?,
+                        start_date = ?, 
+                        end_date = ?, 
+                        is_current = ?, 
+                        description = ?
+                    WHERE id = ? AND job_seeker_profile_id = ?
+                `;
+
+                db.query(
+                    updateQuery,
+                    [
+                        job_title || old.job_title,
+                        company_name || old.company_name,
+                        employment_type || old.employment_type,
+                        start_date || old.start_date,
+                        end_date || old.end_date,
+                        is_current !== undefined ? is_current : old.is_current,
+                        description || old.description,
+                        expId,
+                        profileId
+                    ],
+                    () => {
+                        return res.status(200).json({
+                            success: true,
+                            message: "Experience updated successfully"
+                        });
+                    }
+                );
+            });
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: "Update experience failed",
+            error: error.message
+        });
+    }
+};
+
+const deleteExperience = (req, res) => {
+    try {
+        const userId = req.user.id;
+        const expId = req.params.id;
+
+        const getProfileQuery = `SELECT id FROM job_seeker_profiles WHERE user_id = ?`;
+
+        db.query(getProfileQuery, [userId], (err, result) => {
+            const profileId = result[0].id;
+
+            const deleteQuery = `
+                DELETE FROM job_seeker_experiences
+                WHERE id = ? AND job_seeker_profile_id = ?
+            `;
+
+            db.query(deleteQuery, [expId, profileId], (error, result) => {
+                if (result.affectedRows === 0) {
+                    return res.status(404).json({
+                        success: false,
+                        message: "Experience not found"
+                    });
+                }
+
+                return res.status(200).json({
+                    success: true,
+                    message: "Experience deleted successfully"
+                });
+            });
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: "Delete experience failed",
+            error: error.message
+        });
+    }
+};
+
+
 module.exports = {
     createProfile,
     getProfile,
@@ -653,5 +908,9 @@ module.exports = {
     addEducation,
     getEducations,
     updateEducation,
-    deleteEducation
+    deleteEducation,
+    addExperience,
+    getExperiences,
+    updateExperience,
+    deleteExperience
 };

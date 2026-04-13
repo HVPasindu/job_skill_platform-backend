@@ -18,4 +18,10 @@ router.get("/education", verifyToken, jobSeekerController.getEducations);
 router.put("/education/:id", verifyToken, jobSeekerController.updateEducation);
 router.delete("/education/:id", verifyToken, jobSeekerController.deleteEducation);
 
+// experience
+router.post("/experience", verifyToken, jobSeekerController.addExperience);
+router.get("/experience", verifyToken, jobSeekerController.getExperiences);
+router.put("/experience/:id", verifyToken, jobSeekerController.updateExperience);
+router.delete("/experience/:id", verifyToken, jobSeekerController.deleteExperience);
+
 module.exports = router;
