@@ -15,7 +15,7 @@ const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         if (file.fieldname === "profile_image") {
             cb(null, "uploads/profile-images");
-        } else if (file.fieldname === "resumes") {
+        } else if (file.fieldname === "resumes" || file.fieldname === "resume") {
             cb(null, "uploads/resumes");
         } else {
             cb(new Error("Invalid field name"), null);
@@ -41,19 +41,20 @@ const fileFilter = (req, file, cb) => {
         } else {
             cb(new Error("Only JPG, JPEG, PNG, WEBP files are allowed for profile image"), false);
         }
-    } else if (file.fieldname === "resumes") {
+    } else if (file.fieldname === "resumes" || file.fieldname === "resume") {
         const allowedTypes = [
             "application/pdf",
             "application/msword",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             "image/jpeg",
+            "image/jpg",
             "image/png"
         ];
 
         if (allowedTypes.includes(file.mimetype)) {
             cb(null, true);
         } else {
-            cb(new Error("Only PDF, DOC, DOCX, JPG, PNG files are allowed for resumes"), false);
+            cb(new Error("Only PDF, DOC, DOCX, JPG, JPEG, PNG files are allowed for resumes"), false);
         }
     } else {
         cb(new Error("Invalid file field"), false);
@@ -70,8 +71,10 @@ const upload = multer({
 
 const uploadProfileImage = upload.single("profile_image");
 const uploadResumes = upload.array("resumes", 5);
+const uploadSingleResume = upload.single("resume");
 
 module.exports = {
     uploadProfileImage,
-    uploadResumes
+    uploadResumes,
+    uploadSingleResume
 };
