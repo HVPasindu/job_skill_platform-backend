@@ -203,9 +203,9 @@ const updateProfile = (req, res) => {
             }
 
             const existingProfile = checkResult[0];
-             let profileImagePath = existingProfile.profile_image_url;
-             
-             // new image ekak upload una nam
+            let profileImagePath = existingProfile.profile_image_url;
+
+            // new image ekak upload una nam
             if (req.file) {
                 profileImagePath = req.file.path;
 
@@ -237,11 +237,11 @@ const updateProfile = (req, res) => {
             // 🟢 profile completed logic
             const profileCompleted =
                 updatedPhone &&
-                updatedCity &&
-                updatedCountry &&
-                updatedJobRole &&
-                updatedJobType &&
-                updatedExperience
+                    updatedCity &&
+                    updatedCountry &&
+                    updatedJobRole &&
+                    updatedJobType &&
+                    updatedExperience
                     ? true
                     : false;
 
@@ -302,8 +302,356 @@ const updateProfile = (req, res) => {
     }
 };
 
+
+//education---->
+
+const addEducation = (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        const {
+            qualification,
+            institute_name,
+            field_of_study,
+            start_date,
+            end_date,
+            grade,
+            description
+        } = req.body;
+
+        if (!qualification || !institute_name) {
+            return res.status(400).json({
+                success: false,
+                message: "Qualification and institute name are required"
+            });
+        }
+
+        const getProfileQuery = `
+            SELECT id FROM job_seeker_profiles
+            WHERE user_id = ?
+        `;
+
+        db.query(getProfileQuery, [userId], (profileError, profileResult) => {
+            if (profileError) {
+                return res.status(500).json({
+                    success: false,
+                    message: "Database error",
+                    error: profileError.message
+                });
+            }
+
+            if (profileResult.length === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Job seeker profile not found"
+                });
+            }
+
+            const jobSeekerProfileId = profileResult[0].id;
+
+            const insertEducationQuery = `
+                INSERT INTO job_seeker_educations (
+                    job_seeker_profile_id,
+                    qualification,
+                    institute_name,
+                    field_of_study,
+                    start_date,
+                    end_date,
+                    grade,
+                    description
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `;
+
+            db.query(
+                insertEducationQuery,
+                [
+                    jobSeekerProfileId,
+                    qualification,
+                    institute_name,
+                    field_of_study || null,
+                    start_date || null,
+                    end_date || null,
+                    grade || null,
+                    description || null
+                ],
+                (insertError, insertResult) => {
+                    if (insertError) {
+                        return res.status(500).json({
+                            success: false,
+                            message: "Education add failed",
+                            error: insertError.message
+                        });
+                    }
+
+                    return res.status(201).json({
+                        success: true,
+                        message: "Education added successfully",
+                        education_id: insertResult.insertId
+                    });
+                }
+            );
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: "Add education failed",
+            error: error.message
+        });
+    }
+};
+
+const getEducations = (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        const getProfileQuery = `
+            SELECT id FROM job_seeker_profiles
+            WHERE user_id = ?
+        `;
+
+        db.query(getProfileQuery, [userId], (profileError, profileResult) => {
+            if (profileError) {
+                return res.status(500).json({
+                    success: false,
+                    message: "Database error",
+                    error: profileError.message
+                });
+            }
+
+            if (profileResult.length === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Job seeker profile not found"
+                });
+            }
+
+            const jobSeekerProfileId = profileResult[0].id;
+
+            const getEducationQuery = `
+                SELECT *
+                FROM job_seeker_educations
+                WHERE job_seeker_profile_id = ?
+                ORDER BY id DESC
+            `;
+
+            db.query(getEducationQuery, [jobSeekerProfileId], (educationError, educationResult) => {
+                if (educationError) {
+                    return res.status(500).json({
+                        success: false,
+                        message: "Fetch education failed",
+                        error: educationError.message
+                    });
+                }
+
+                return res.status(200).json({
+                    success: true,
+                    educations: educationResult
+                });
+            });
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: "Get educations failed",
+            error: error.message
+        });
+    }
+};
+
+const updateEducation = (req, res) => {
+    try {
+        const userId = req.user.id;
+        const educationId = req.params.id;
+
+        const {
+            qualification,
+            institute_name,
+            field_of_study,
+            start_date,
+            end_date,
+            grade,
+            description
+        } = req.body;
+
+        const getProfileQuery = `
+            SELECT id FROM job_seeker_profiles
+            WHERE user_id = ?
+        `;
+
+        db.query(getProfileQuery, [userId], (profileError, profileResult) => {
+            if (profileError) {
+                return res.status(500).json({
+                    success: false,
+                    message: "Database error",
+                    error: profileError.message
+                });
+            }
+
+            if (profileResult.length === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Job seeker profile not found"
+                });
+            }
+
+            const jobSeekerProfileId = profileResult[0].id;
+
+            const checkEducationQuery = `
+                SELECT * FROM job_seeker_educations
+                WHERE id = ? AND job_seeker_profile_id = ?
+            `;
+
+            db.query(checkEducationQuery, [educationId, jobSeekerProfileId], (checkError, checkResult) => {
+                if (checkError) {
+                    return res.status(500).json({
+                        success: false,
+                        message: "Education check failed",
+                        error: checkError.message
+                    });
+                }
+
+                if (checkResult.length === 0) {
+                    return res.status(404).json({
+                        success: false,
+                        message: "Education record not found"
+                    });
+                }
+
+                const existingEducation = checkResult[0];
+
+                const updatedQualification = qualification || existingEducation.qualification;
+                const updatedInstituteName = institute_name || existingEducation.institute_name;
+                const updatedFieldOfStudy = field_of_study || existingEducation.field_of_study;
+                const updatedStartDate = start_date || existingEducation.start_date;
+                const updatedEndDate = end_date || existingEducation.end_date;
+                const updatedGrade = grade || existingEducation.grade;
+                const updatedDescription = description || existingEducation.description;
+
+                const updateEducationQuery = `
+                    UPDATE job_seeker_educations
+                    SET
+                        qualification = ?,
+                        institute_name = ?,
+                        field_of_study = ?,
+                        start_date = ?,
+                        end_date = ?,
+                        grade = ?,
+                        description = ?
+                    WHERE id = ? AND job_seeker_profile_id = ?
+                `;
+
+                db.query(
+                    updateEducationQuery,
+                    [
+                        updatedQualification,
+                        updatedInstituteName,
+                        updatedFieldOfStudy,
+                        updatedStartDate,
+                        updatedEndDate,
+                        updatedGrade,
+                        updatedDescription,
+                        educationId,
+                        jobSeekerProfileId
+                    ],
+                    (updateError) => {
+                        if (updateError) {
+                            return res.status(500).json({
+                                success: false,
+                                message: "Education update failed",
+                                error: updateError.message
+                            });
+                        }
+
+                        return res.status(200).json({
+                            success: true,
+                            message: "Education updated successfully"
+                        });
+                    }
+                );
+            });
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: "Update education failed",
+            error: error.message
+        });
+    }
+};
+
+
+const deleteEducation = (req, res) => {
+    try {
+        const userId = req.user.id;
+        const educationId = req.params.id;
+
+        const getProfileQuery = `
+            SELECT id FROM job_seeker_profiles
+            WHERE user_id = ?
+        `;
+
+        db.query(getProfileQuery, [userId], (profileError, profileResult) => {
+            if (profileError) {
+                return res.status(500).json({
+                    success: false,
+                    message: "Database error",
+                    error: profileError.message
+                });
+            }
+
+            if (profileResult.length === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Job seeker profile not found"
+                });
+            }
+
+            const jobSeekerProfileId = profileResult[0].id;
+
+            const deleteEducationQuery = `
+                DELETE FROM job_seeker_educations
+                WHERE id = ? AND job_seeker_profile_id = ?
+            `;
+
+            db.query(deleteEducationQuery, [educationId, jobSeekerProfileId], (deleteError, deleteResult) => {
+                if (deleteError) {
+                    return res.status(500).json({
+                        success: false,
+                        message: "Education delete failed",
+                        error: deleteError.message
+                    });
+                }
+
+                if (deleteResult.affectedRows === 0) {
+                    return res.status(404).json({
+                        success: false,
+                        message: "Education record not found"
+                    });
+                }
+
+                return res.status(200).json({
+                    success: true,
+                    message: "Education deleted successfully"
+                });
+            });
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: "Delete education failed",
+            error: error.message
+        });
+    }
+};
+
+
 module.exports = {
     createProfile,
     getProfile,
-    updateProfile
+    updateProfile,
+    addEducation,
+    getEducations,
+    updateEducation,
+    deleteEducation
 };
