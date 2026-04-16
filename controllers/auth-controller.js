@@ -10,7 +10,7 @@ function generateOtp() {
 // SIGNUP
 const signup = async (req, res) => {
     try {
-        const { full_name, email, password, confirmPassword } = req.body;
+        const { full_name, email, password, confirmPassword, role_name } = req.body;
 
         if (!full_name || !email || !password || !confirmPassword) {
             return res.status(400).json({
@@ -23,6 +23,15 @@ const signup = async (req, res) => {
             return res.status(400).json({
                 success: false,
                 message: "Passwords do not match",
+            });
+        }
+
+        const allowedRoles = ["job_seeker", "employer", "trainer"];
+
+        if (!allowedRoles.includes(role_name)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid role selected"
             });
         }
 
@@ -125,8 +134,10 @@ const signup = async (req, res) => {
 
                     const userId = insertUserResult.insertId;
 
-                    const getRoleQuery = "SELECT id FROM roles WHERE role_name = 'job_seeker'";
-                    db.query(getRoleQuery, (roleError, roleResult) => {
+                    //const getRoleQuery = "SELECT id FROM roles WHERE role_name = 'job_seeker'";
+                    const getRoleQuery = "SELECT id FROM roles WHERE role_name = ?";
+                    
+                    db.query(getRoleQuery,[role_name], (roleError, roleResult) => {
                         if (roleError || roleResult.length === 0) {
                             return res.status(500).json({
                                 success: false,
