@@ -1,7 +1,6 @@
 const db = require("../db/db-connection");
+const fs = require("fs");
 const { sendCompanyAddedEmail } = require("../services/send-email");
-
-// CREATE COMPANY
 
 const createCompany = (req, res) => {
     try {
@@ -12,7 +11,6 @@ const createCompany = (req, res) => {
             company_email,
             company_phone,
             website_url,
-            logo_url,
             industry,
             company_size,
             description,
@@ -23,6 +21,10 @@ const createCompany = (req, res) => {
             department,
             bio
         } = req.body;
+
+        const companyLogoUrl = req.file
+            ? `${req.protocol}://${req.get("host")}/${req.file.path.replace(/\\/g, "/")}`
+            : null;
 
         if (!company_name) {
             return res.status(400).json({
@@ -107,7 +109,7 @@ const createCompany = (req, res) => {
                             company_email || null,
                             company_phone || null,
                             website_url || null,
-                            logo_url || null,
+                            companyLogoUrl,
                             industry || null,
                             company_size || null,
                             description || null,
@@ -162,7 +164,8 @@ const createCompany = (req, res) => {
                                     return res.status(201).json({
                                         success: true,
                                         message: "Company created successfully",
-                                        company_id: companyId
+                                        company_id: companyId,
+                                        logo_url: companyLogoUrl
                                     });
                                 }
                             );
@@ -179,226 +182,27 @@ const createCompany = (req, res) => {
         });
     }
 };
-// const createCompany = (req, res) => {
-//     try {
-//         const userId = req.user.id;
 
-//         const {
-//             company_name,
-//             company_email,
-//             company_phone,
-//             website_url,
-//             logo_url,
-//             industry,
-//             company_size,
-//             description,
-//             address_line,
-//             city,
-//             country,
-//             job_title,
-//             department,
-//             bio
-//         } = req.body;
-
-//         if (!company_name) {
-//             return res.status(400).json({
-//                 success: false,
-//                 message: "Company name is required"
-//             });
-//         }
-
-//         const checkCompanyExistsQuery = `
-//             SELECT *
-//             FROM companies
-//             WHERE LOWER(company_name) = LOWER(?)
-//                OR (company_email IS NOT NULL AND company_email = ?)
-//                OR (website_url IS NOT NULL AND website_url = ?)
-//             LIMIT 1
-//         `;
-
-//         db.query(
-//             checkCompanyExistsQuery,
-//             [company_name, company_email || null, website_url || null],
-//             (existsError, existsResult) => {
-//                 if (existsError) {
-//                     return res.status(500).json({
-//                         success: false,
-//                         message: "Company check failed",
-//                         error: existsError.message
-//                     });
-//                 }
-
-//                 if (existsResult.length > 0) {
-//                     return res.status(400).json({
-//                         success: false,
-//                         message: "Company already exists"
-//                     });
-//                 }
-
-//                 const insertCompanyQuery = `
-//                     INSERT INTO companies (
-//                         company_name,
-//                         company_email,
-//                         company_phone,
-//                         website_url,
-//                         logo_url,
-//                         industry,
-//                         company_size,
-//                         description,
-//                         address_line,
-//                         city,
-//                         country
-//                     )
-//                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-//                 `;
-
-//                 db.query(
-//                     insertCompanyQuery,
-//                     [
-//                         company_name,
-//                         company_email || null,
-//                         company_phone || null,
-//                         website_url || null,
-//                         logo_url || null,
-//                         industry || null,
-//                         company_size || null,
-//                         description || null,
-//                         address_line || null,
-//                         city || null,
-//                         country || null
-//                     ],
-//                     (insertCompanyError, insertCompanyResult) => {
-//                         if (insertCompanyError) {
-//                             return res.status(500).json({
-//                                 success: false,
-//                                 message: "Company creation failed",
-//                                 error: insertCompanyError.message
-//                             });
-//                         }
-
-//                         const companyId = insertCompanyResult.insertId;
-
-//                         const insertCompanyUserQuery = `
-//                             INSERT INTO company_users (
-//                                 company_id,
-//                                 user_id,
-//                                 company_role,
-//                                 is_primary_contact,
-//                                 job_title,
-//                                 department,
-//                                 bio
-//                             )
-//                             VALUES (?, ?, ?, ?, ?, ?, ?)
-//                         `;
-
-//                         db.query(
-//                             insertCompanyUserQuery,
-//                             [
-//                                 companyId,
-//                                 userId,
-//                                 "owner",
-//                                 true,
-//                                 job_title || null,
-//                                 department || null,
-//                                 bio || null
-//                             ],
-//                             (companyUserError) => {
-//                                 if (companyUserError) {
-//                                     return res.status(500).json({
-//                                         success: false,
-//                                         message: "Company user creation failed",
-//                                         error: companyUserError.message
-//                                     });
-//                                 }
-
-//                                 // return res.status(201).json({
-//                                 //     success: true,
-//                                 //     message: "Company created successfully",
-//                                 //     company_id: companyId
-//                                 // });
-
-//                                 const getEmployerRoleQuery = `SELECT id FROM roles
-//                                                               WHERE role_name = 'employer' LIMIT 1`;
-
-//                                 db.query(getEmployerRoleQuery, (roleError, roleResult) => {
-//                                     if (roleError) {
-//                                         return res.status(500).json({
-//                                             success: false,
-//                                             message: "Employer role fetch failed",
-//                                             error: roleError.message
-//                                         });
-//                                     }
-
-//                                     if (roleResult.length === 0) {
-//                                         return res.status(500).json({
-//                                             success: false,
-//                                             message: "Employer role not found"
-//                                         });
-//                                     }
-
-//                                     const employerRoleId = roleResult[0].id;
-
-//                                     const checkUserRoleQuery = `SELECT * FROM user_roles WHERE user_id = ? AND role_id = ? `;
-
-//                                     db.query(checkUserRoleQuery, [userId, employerRoleId], (checkRoleError, checkRoleResult) => {
-//                                         if (checkRoleError) {
-//                                             return res.status(500).json({
-//                                                 success: false,
-//                                                 message: "User role check failed",
-//                                                 error: checkRoleError.message
-//                                             });
-//                                         }
-
-//                                         if (checkRoleResult.length > 0) {
-//                                             return res.status(201).json({
-//                                                 success: true,
-//                                                 message: "Company created successfully",
-//                                                 company_id: companyId
-//                                             });
-//                                         }
-
-//                                         const insertUserRoleQuery = `INSERT INTO user_roles (user_id, role_id) VALUES (?, ?) `;
-
-//                                         db.query(insertUserRoleQuery, [userId, employerRoleId], (insertRoleError) => {
-//                                             if (insertRoleError) {
-//                                                 return res.status(500).json({
-//                                                     success: false,
-//                                                     message: "Employer role add failed",
-//                                                     error: insertRoleError.message
-//                                                 });
-//                                             }
-
-//                                             return res.status(201).json({
-//                                                 success: true,
-//                                                 message: "Company created successfully",
-//                                                 company_id: companyId
-//                                             });
-//                                         });
-//                                     });
-//                                 });
-//                             }
-//                         );
-//                     }
-//                 );
-//             }
-//         );
-//     } catch (error) {
-//         return res.status(500).json({
-//             success: false,
-//             message: "Create company failed",
-//             error: error.message
-//         });
-//     }
-// };
-
-// GET MY COMPANIES
 const getMyCompanies = (req, res) => {
     try {
         const userId = req.user.id;
 
         const getMyCompaniesQuery = `
             SELECT
-                c.*,
+                c.id,
+                c.company_name,
+                c.company_email,
+                c.company_phone,
+                c.website_url,
+                c.logo_url,
+                c.industry,
+                c.company_size,
+                c.description,
+                c.address_line,
+                c.city,
+                c.country,
+                c.created_at,
+                c.updated_at,
                 cu.id AS company_user_id,
                 cu.company_role,
                 cu.is_primary_contact,
@@ -434,7 +238,6 @@ const getMyCompanies = (req, res) => {
     }
 };
 
-// GET SINGLE COMPANY
 const getSingleCompany = (req, res) => {
     try {
         const userId = req.user.id;
@@ -442,7 +245,20 @@ const getSingleCompany = (req, res) => {
 
         const getSingleCompanyQuery = `
             SELECT
-                c.*,
+                c.id,
+                c.company_name,
+                c.company_email,
+                c.company_phone,
+                c.website_url,
+                c.logo_url,
+                c.industry,
+                c.company_size,
+                c.description,
+                c.address_line,
+                c.city,
+                c.country,
+                c.created_at,
+                c.updated_at,
                 cu.id AS company_user_id,
                 cu.company_role,
                 cu.is_primary_contact,
@@ -485,7 +301,6 @@ const getSingleCompany = (req, res) => {
     }
 };
 
-// UPDATE COMPANY
 const updateCompany = (req, res) => {
     try {
         const userId = req.user.id;
@@ -496,7 +311,6 @@ const updateCompany = (req, res) => {
             company_email,
             company_phone,
             website_url,
-            logo_url,
             industry,
             company_size,
             description,
@@ -548,6 +362,24 @@ const updateCompany = (req, res) => {
                 }
 
                 const oldCompany = companyResult[0];
+                let updatedLogoUrl = oldCompany.logo_url;
+
+                if (req.file) {
+                    updatedLogoUrl = `${req.protocol}://${req.get("host")}/${req.file.path.replace(/\\/g, "/")}`;
+
+                    if (oldCompany.logo_url) {
+                        try {
+                            const oldUrl = new URL(oldCompany.logo_url);
+                            const oldLogoPath = decodeURIComponent(oldUrl.pathname.substring(1));
+
+                            if (fs.existsSync(oldLogoPath)) {
+                                fs.unlinkSync(oldLogoPath);
+                            }
+                        } catch (error) {
+                            console.log("Old company logo delete failed:", error.message);
+                        }
+                    }
+                }
 
                 const updateCompanyQuery = `
                     UPDATE companies
@@ -573,7 +405,7 @@ const updateCompany = (req, res) => {
                         company_email || oldCompany.company_email,
                         company_phone || oldCompany.company_phone,
                         website_url || oldCompany.website_url,
-                        logo_url || oldCompany.logo_url,
+                        updatedLogoUrl,
                         industry || oldCompany.industry,
                         company_size || oldCompany.company_size,
                         description || oldCompany.description,
@@ -593,7 +425,8 @@ const updateCompany = (req, res) => {
 
                         return res.status(200).json({
                             success: true,
-                            message: "Company updated successfully"
+                            message: "Company updated successfully",
+                            logo_url: updatedLogoUrl
                         });
                     }
                 );
@@ -608,7 +441,6 @@ const updateCompany = (req, res) => {
     }
 };
 
-// ADD USER TO COMPANY BY EMAIL
 const addUserToCompany = (req, res) => {
     try {
         const loggedUserId = req.user.id;
@@ -731,35 +563,11 @@ const addUserToCompany = (req, res) => {
                                     });
                                 }
 
-                                // const getCompanyQuery = `
-                                //     SELECT company_name FROM companies
-                                //     WHERE id = ?
-                                // `;
-
-                                // db.query(getCompanyQuery, [companyId], async (companyError, companyResult) => {
-                                //     const companyName =
-                                //         companyResult && companyResult.length > 0
-                                //             ? companyResult[0].company_name
-                                //             : "Company";
-
-                                //     try {
-                                //         await sendCompanyAddedEmail(
-                                //             targetUser.email,
-                                //             companyName,
-                                //             company_role || "employee"
-                                //         );
-                                //     } catch (emailError) {
-                                //         console.log("Company add email send failed:", emailError.message);
-                                //     }
-
-                                //     return res.status(201).json({
-                                //         success: true,
-                                //         message: "User added to company successfully"
-                                //     });
-                                // });
-
-
-                                const getEmployerRoleQuery = `SELECT id FROM roles WHERE role_name = 'employer' LIMIT 1 `;
+                                const getEmployerRoleQuery = `
+                                    SELECT id FROM roles
+                                    WHERE role_name = 'employer'
+                                    LIMIT 1
+                                `;
 
                                 db.query(getEmployerRoleQuery, (roleError, roleResult) => {
                                     if (roleError) {
@@ -779,7 +587,10 @@ const addUserToCompany = (req, res) => {
 
                                     const employerRoleId = roleResult[0].id;
 
-                                    const checkUserRoleQuery = `SELECT * FROM user_roles WHERE user_id = ? AND role_id = ? `;
+                                    const checkUserRoleQuery = `
+                                        SELECT * FROM user_roles
+                                        WHERE user_id = ? AND role_id = ?
+                                    `;
 
                                     db.query(checkUserRoleQuery, [targetUser.id, employerRoleId], (checkRoleError, checkRoleResult) => {
                                         if (checkRoleError) {
@@ -791,7 +602,10 @@ const addUserToCompany = (req, res) => {
                                         }
 
                                         const continueSendEmail = () => {
-                                            const getCompanyQuery = `SELECT company_name FROM companies WHERE id = ? `;
+                                            const getCompanyQuery = `
+                                                SELECT company_name FROM companies
+                                                WHERE id = ?
+                                            `;
 
                                             db.query(getCompanyQuery, [companyId], async (companyError, companyResult) => {
                                                 const companyName =
@@ -820,7 +634,10 @@ const addUserToCompany = (req, res) => {
                                             return continueSendEmail();
                                         }
 
-                                        const insertUserRoleQuery = `INSERT INTO user_roles (user_id, role_id) VALUES (?, ?) `;
+                                        const insertUserRoleQuery = `
+                                            INSERT INTO user_roles (user_id, role_id)
+                                            VALUES (?, ?)
+                                        `;
 
                                         db.query(insertUserRoleQuery, [targetUser.id, employerRoleId], (insertRoleError) => {
                                             if (insertRoleError) {
@@ -850,7 +667,6 @@ const addUserToCompany = (req, res) => {
     }
 };
 
-// GET COMPANY USERS
 const getCompanyUsers = (req, res) => {
     try {
         const userId = req.user.id;
@@ -921,120 +737,6 @@ const getCompanyUsers = (req, res) => {
     }
 };
 
-// UPDATE COMPANY USER
-// const updateCompanyUser = (req, res) => {
-//     try {
-//         const loggedUserId = req.user.id;
-//         const companyId = req.params.id;
-//         const companyUserId = req.params.companyUserId;
-
-//         const {
-//             company_role,
-//             is_primary_contact,
-//             job_title,
-//             department,
-//             bio
-//         } = req.body;
-
-//         const getCompanyUserQuery = `
-//             SELECT * FROM company_users
-//             WHERE id = ? AND company_id = ?
-//         `;
-
-//         db.query(getCompanyUserQuery, [companyUserId, companyId], (fetchError, fetchResult) => {
-//             if (fetchError) {
-//                 return res.status(500).json({
-//                     success: false,
-//                     message: "Company user fetch failed",
-//                     error: fetchError.message
-//                 });
-//             }
-
-//             if (fetchResult.length === 0) {
-//                 return res.status(404).json({
-//                     success: false,
-//                     message: "Company user not found"
-//                 });
-//             }
-
-//             const targetUser = fetchResult[0];
-
-//             const checkOwnerQuery = `
-//                 SELECT * FROM company_users
-//                 WHERE company_id = ? AND user_id = ? AND company_role = 'owner'
-//             `;
-
-//             db.query(checkOwnerQuery, [companyId, loggedUserId], (ownerError, ownerResult) => {
-//                 if (ownerError) {
-//                     return res.status(500).json({
-//                         success: false,
-//                         message: "Owner check failed",
-//                         error: ownerError.message
-//                     });
-//                 }
-
-//                 const isOwner = ownerResult.length > 0;
-//                 const isSelf = Number(targetUser.user_id) === Number(loggedUserId);
-
-//                 if (!isOwner && !isSelf) {
-//                     return res.status(403).json({
-//                         success: false,
-//                         message: "You can only update your own company profile"
-//                     });
-//                 }
-
-//                 const updateCompanyUserQuery = `
-//                     UPDATE company_users
-//                     SET
-//                         company_role = ?,
-//                         is_primary_contact = ?,
-//                         job_title = ?,
-//                         department = ?,
-//                         bio = ?
-//                     WHERE id = ? AND company_id = ?
-//                 `;
-
-//                 db.query(
-//                     updateCompanyUserQuery,
-//                     [
-//                         isOwner ? (company_role || targetUser.company_role) : targetUser.company_role,
-//                         isOwner
-//                             ? (is_primary_contact !== undefined ? is_primary_contact : targetUser.is_primary_contact)
-//                             : targetUser.is_primary_contact,
-//                         job_title || targetUser.job_title,
-//                         department || targetUser.department,
-//                         bio || targetUser.bio,
-//                         companyUserId,
-//                         companyId
-//                     ],
-//                     (updateError) => {
-//                         if (updateError) {
-//                             return res.status(500).json({
-//                                 success: false,
-//                                 message: "Company user update failed",
-//                                 error: updateError.message
-//                             });
-//                         }
-
-//                         return res.status(200).json({
-//                             success: true,
-//                             message: "Company user updated successfully"
-//                         });
-//                     }
-//                 );
-//             });
-//         });
-//     } catch (error) {
-//         return res.status(500).json({
-//             success: false,
-//             message: "Update company user failed",
-//             error: error.message
-//         });
-//     }
-// };
-
-
-
 const updateCompanyUser = (req, res) => {
     try {
         const loggedUserId = req.user.id;
@@ -1089,7 +791,6 @@ const updateCompanyUser = (req, res) => {
                 const isOwner = ownerResult.length > 0;
                 const isSelf = Number(targetUser.user_id) === Number(loggedUserId);
 
-                // owner nemei nam self update witharai
                 if (!isOwner && !isSelf) {
                     return res.status(403).json({
                         success: false,
@@ -1100,9 +801,7 @@ const updateCompanyUser = (req, res) => {
                 let finalCompanyRole = targetUser.company_role;
                 let finalIsPrimaryContact = targetUser.is_primary_contact;
 
-                // owner kenekta witharai me dewal change karanna puluwan
                 if (isOwner) {
-                    // own role change karanna denna epa
                     if (!isSelf && company_role !== undefined) {
                         finalCompanyRole = company_role;
                     }
@@ -1169,7 +868,6 @@ const updateCompanyUser = (req, res) => {
     }
 };
 
-// REMOVE COMPANY USER
 const removeCompanyUser = (req, res) => {
     try {
         const loggedUserId = req.user.id;
