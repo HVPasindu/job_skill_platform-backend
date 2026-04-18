@@ -10,6 +10,7 @@ const createFolderIfNotExists = (folderPath) => {
 
 createFolderIfNotExists("uploads/profile-images");
 createFolderIfNotExists("uploads/resumes");
+createFolderIfNotExists("uploads/company-logos");
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
@@ -17,6 +18,8 @@ const storage = multer.diskStorage({
             cb(null, "uploads/profile-images");
         } else if (file.fieldname === "resumes" || file.fieldname === "resume") {
             cb(null, "uploads/resumes");
+        } else if (file.fieldname === "company_logo") {
+            cb(null, "uploads/company-logos");
         } else {
             cb(new Error("Invalid field name"), null);
         }
@@ -27,19 +30,19 @@ const storage = multer.diskStorage({
     }
 });
 
-const fileFilter = (req, file, cb) => {
-    if (file.fieldname === "profile_image") {
-        const allowedTypes = [
-            "image/jpeg",
-            "image/jpg",
-            "image/png",
-            "image/webp"
-        ];
+const imageTypes = [
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/webp"
+];
 
-        if (allowedTypes.includes(file.mimetype)) {
+const fileFilter = (req, file, cb) => {
+    if (file.fieldname === "profile_image" || file.fieldname === "company_logo") {
+        if (imageTypes.includes(file.mimetype)) {
             cb(null, true);
         } else {
-            cb(new Error("Only JPG, JPEG, PNG, WEBP files are allowed for profile image"), false);
+            cb(new Error("Only JPG, JPEG, PNG, WEBP files are allowed"), false);
         }
     } else if (file.fieldname === "resumes" || file.fieldname === "resume") {
         const allowedTypes = [
@@ -72,9 +75,11 @@ const upload = multer({
 const uploadProfileImage = upload.single("profile_image");
 const uploadResumes = upload.array("resumes", 5);
 const uploadSingleResume = upload.single("resume");
+const uploadCompanyLogo = upload.single("company_logo");
 
 module.exports = {
     uploadProfileImage,
     uploadResumes,
-    uploadSingleResume
+    uploadSingleResume,
+    uploadCompanyLogo
 };

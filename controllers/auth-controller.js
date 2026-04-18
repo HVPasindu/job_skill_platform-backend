@@ -1,6 +1,7 @@
 const bcrypt = require("bcrypt");
 const db = require("../db/db-connection");
-const sendOtpEmail = require("../services/send-email");
+//const sendOtpEmail = require("../services/send-email");
+const { sendOtpEmail } = require("../services/send-email");
 const jwt = require('jsonwebtoken');
 
 function generateOtp() {
@@ -567,29 +568,72 @@ const login = async (req, res) => {
 
                 const rolesArray = roleResults.map((item) => item.role_name);
 
-                const token = jwt.sign(
-                    {
-                        id: user.id,
-                        email: user.email,
-                        roles: rolesArray
-                    },
-                    process.env.JWT_SECRET,
-                    {
-                        expiresIn: process.env.JWT_EXPIRES_IN || "1d"
-                    }
-                );
+                // const token = jwt.sign(
+                //     {
+                //         id: user.id,
+                //         email: user.email,
+                //         roles: rolesArray
+                //     },
+                //     process.env.JWT_SECRET,
+                //     {
+                //         expiresIn: process.env.JWT_EXPIRES_IN || "1d"
+                //     }
+                // );
 
-                return res.status(200).json({
-                    success: true,
-                    message: "Login successful",
-                    token,
-                    user: {
-                        id: user.id,
-                        full_name: user.full_name,
-                        email: user.email,
-                        roles: rolesArray
-                    },
+                // return res.status(200).json({
+                //     success: true,
+                //     message: "Login successful",
+                //     token,
+                //     user: {
+                //         id: user.id,
+                //         full_name: user.full_name,
+                //         email: user.email,
+                //         roles: rolesArray
+                //     },
+                // });
+
+                const checkCompaniesQuery = `SELECT cu.company_id, c.company_name, cu.company_role FROM company_users cu
+                                            JOIN companies c ON cu.company_id = c.id WHERE cu.user_id = ? `;
+
+                db.query(checkCompaniesQuery, [user.id], (companyError, companyResults) => {
+                    if (companyError) {
+                        return res.status(500).json({
+                            success: false,
+                            message: "Company access fetch failed",
+                            error: companyError.message
+                        });
+                    }
+
+                    const hasCompanies = companyResults.length > 0;
+
+                    const token = jwt.sign(
+                        {
+                            id: user.id,
+                            email: user.email,
+                            roles: rolesArray
+                        },
+                        process.env.JWT_SECRET,
+                        {
+                            expiresIn: process.env.JWT_EXPIRES_IN || "1d"
+                        }
+                    );
+
+                    return res.status(200).json({
+                        success: true,
+                        message: "Login successful",
+                        token,
+                        user: {
+                            id: user.id,
+                            full_name: user.full_name,
+                            email: user.email,
+                            roles: rolesArray,
+                            has_companies: hasCompanies,
+                            companies: companyResults
+                        },
+                    });
                 });
+
+
             });
         });
     } catch (error) {
