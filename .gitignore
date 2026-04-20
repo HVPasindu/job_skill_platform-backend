@@ -5,3 +5,4 @@ node_modules/
 uploads/profile-images/*
 !uploads/profile-images/.gitkeep
 uploads/resumes/*
+uploads/company-logos/*
