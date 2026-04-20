@@ -1,6 +1,7 @@
 const bcrypt = require("bcrypt");
 const db = require("../db/db-connection");
-const sendOtpEmail = require("../services/send-email");
+//const sendOtpEmail = require("../services/send-email");
+const { sendOtpEmail } = require("../services/send-email");
 const jwt = require('jsonwebtoken');
 
 function generateOtp() {
@@ -10,9 +11,9 @@ function generateOtp() {
 // SIGNUP
 const signup = async (req, res) => {
     try {
-        const { full_name, email, password, confirmPassword } = req.body;
+        const { full_name, email, password, confirmPassword, role_name } = req.body;
 
-        if (!full_name || !email || !password || !confirmPassword) {
+        if (!full_name || !email || !password || !confirmPassword || !role_name) {
             return res.status(400).json({
                 success: false,
                 message: "All fields are required",
@@ -26,7 +27,17 @@ const signup = async (req, res) => {
             });
         }
 
+        const allowedRoles = ["job_seeker", "employer", "trainer"];
+
+        if (!allowedRoles.includes(role_name)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid role selected",
+            });
+        }
+
         const checkUserQuery = "SELECT * FROM users WHERE email = ?";
+
         db.query(checkUserQuery, [email], async (checkError, checkResult) => {
             if (checkError) {
                 return res.status(500).json({
@@ -36,6 +47,11 @@ const signup = async (req, res) => {
                 });
             }
 
+            const hashedPassword = await bcrypt.hash(password, 10);
+
+            // =========================
+            // EXISTING USER FLOW
+            // =========================
             if (checkResult.length > 0) {
                 const existingUser = checkResult[0];
 
@@ -44,22 +60,38 @@ const signup = async (req, res) => {
                         success: false,
                         message: "Email already registered and verified",
                     });
-                } else {
-                    // 👉 UNVERIFIED USER FLOW
+                }
 
-                    const hashedPassword = await bcrypt.hash(password, 10);
+                const getRoleQuery = "SELECT id FROM roles WHERE role_name = ?";
 
-                    // update user details
+                db.query(getRoleQuery, [role_name], (roleError, roleResult) => {
+                    if (roleError) {
+                        return res.status(500).json({
+                            success: false,
+                            message: "Role fetch failed",
+                            error: roleError.message,
+                        });
+                    }
+
+                    if (roleResult.length === 0) {
+                        return res.status(500).json({
+                            success: false,
+                            message: "Selected role not found",
+                        });
+                    }
+
+                    const roleId = roleResult[0].id;
+
                     const updateUserQuery = `
-                                                UPDATE users
-                                                SET full_name = ?, password_hash = ?
-                                                WHERE id = ?
-                                            `;
+                        UPDATE users
+                        SET full_name = ?, password_hash = ?
+                        WHERE id = ?
+                    `;
 
                     db.query(
                         updateUserQuery,
                         [full_name, hashedPassword, existingUser.id],
-                        async (updateError) => {
+                        (updateError) => {
                             if (updateError) {
                                 return res.status(500).json({
                                     success: false,
@@ -68,48 +100,124 @@ const signup = async (req, res) => {
                                 });
                             }
 
-                            const otp = generateOtp();
-                            const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-
-                            const updateOtpQuery = `
-                                                    UPDATE email_verifications
-                                                    SET otp_code = ?, expires_at = ?, attempts_count = 0, is_verified = false, verified_at = NULL
-                                                    WHERE user_id = ?
-                                                `;
+                            const deleteUserRolesQuery = `
+                                DELETE FROM user_roles
+                                WHERE user_id = ?
+                            `;
 
                             db.query(
-                                updateOtpQuery,
-                                [otp, expiresAt, existingUser.id],
-                                async (otpError) => {
-                                    if (otpError) {
+                                deleteUserRolesQuery,
+                                [existingUser.id],
+                                (deleteRoleError) => {
+                                    if (deleteRoleError) {
                                         return res.status(500).json({
                                             success: false,
-                                            message: "OTP update failed",
-                                            error: otpError.message,
+                                            message: "Old user role delete failed",
+                                            error: deleteRoleError.message,
                                         });
                                     }
 
-                                    await sendOtpEmail(email, otp);
+                                    const insertUserRoleQuery = `
+                                        INSERT INTO user_roles (user_id, role_id)
+                                        VALUES (?, ?)
+                                    `;
 
-                                    return res.status(200).json({
-                                        success: true,
-                                        message: "Account updated. New OTP sent.",
-                                    });
+                                    db.query(
+                                        insertUserRoleQuery,
+                                        [existingUser.id, roleId],
+                                        (userRoleError) => {
+                                            if (userRoleError) {
+                                                return res.status(500).json({
+                                                    success: false,
+                                                    message: "User role update failed",
+                                                    error: userRoleError.message,
+                                                });
+                                            }
+
+                                            const otp = generateOtp();
+                                            const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+                                            const updateOtpQuery = `
+                                                UPDATE email_verifications
+                                                SET otp_code = ?, expires_at = ?, attempts_count = 0, is_verified = false, verified_at = NULL
+                                                WHERE user_id = ?
+                                            `;
+
+                                            db.query(
+                                                updateOtpQuery,
+                                                [otp, expiresAt, existingUser.id],
+                                                async (otpError, otpResult) => {
+                                                    if (otpError) {
+                                                        return res.status(500).json({
+                                                            success: false,
+                                                            message: "OTP update failed",
+                                                            error: otpError.message,
+                                                        });
+                                                    }
+
+                                                    // user_id ekata verification row ekak nathi nam aluth row ekak insert karanna
+                                                    const handleSendEmail = async () => {
+                                                        try {
+                                                            await sendOtpEmail(email, otp);
+
+                                                            return res.status(200).json({
+                                                                success: true,
+                                                                message: "Account updated. New OTP sent.",
+                                                            });
+                                                        } catch (emailError) {
+                                                            return res.status(500).json({
+                                                                success: false,
+                                                                message: "OTP email send failed",
+                                                                error: emailError.message,
+                                                            });
+                                                        }
+                                                    };
+
+                                                    if (otpResult.affectedRows === 0) {
+                                                        const insertOtpQuery = `
+                                                            INSERT INTO email_verifications
+                                                            (user_id, email, otp_code, expires_at, is_verified, attempts_count)
+                                                            VALUES (?, ?, ?, ?, false, 0)
+                                                        `;
+
+                                                        db.query(
+                                                            insertOtpQuery,
+                                                            [existingUser.id, email, otp, expiresAt],
+                                                            async (insertOtpError) => {
+                                                                if (insertOtpError) {
+                                                                    return res.status(500).json({
+                                                                        success: false,
+                                                                        message: "OTP save failed",
+                                                                        error: insertOtpError.message,
+                                                                    });
+                                                                }
+
+                                                                return handleSendEmail();
+                                                            }
+                                                        );
+                                                    } else {
+                                                        return handleSendEmail();
+                                                    }
+                                                }
+                                            );
+                                        }
+                                    );
                                 }
                             );
                         }
                     );
+                });
 
-                    return;
-                }
+                return;
             }
 
-            const hashedPassword = await bcrypt.hash(password, 10);
-
+            // =========================
+            // NEW USER FLOW
+            // =========================
             const insertUserQuery = `
-                                    INSERT INTO users (full_name, email, password_hash, is_email_verified, is_active)
-                                    VALUES (?, ?, ?, false, true)
-                                    `;
+                INSERT INTO users (full_name, email, password_hash, is_email_verified, is_active)
+                VALUES (?, ?, ?, false, true)
+            `;
 
             db.query(
                 insertUserQuery,
@@ -125,26 +233,35 @@ const signup = async (req, res) => {
 
                     const userId = insertUserResult.insertId;
 
-                    const getRoleQuery = "SELECT id FROM roles WHERE role_name = 'job_seeker'";
-                    db.query(getRoleQuery, (roleError, roleResult) => {
-                        if (roleError || roleResult.length === 0) {
+                    const getRoleQuery = "SELECT id FROM roles WHERE role_name = ?";
+
+                    db.query(getRoleQuery, [role_name], (roleError, roleResult) => {
+                        if (roleError) {
                             return res.status(500).json({
                                 success: false,
-                                message: "Job seeker role not found",
+                                message: "Role fetch failed",
+                                error: roleError.message,
+                            });
+                        }
+
+                        if (roleResult.length === 0) {
+                            return res.status(500).json({
+                                success: false,
+                                message: "Selected role not found",
                             });
                         }
 
                         const roleId = roleResult[0].id;
 
                         const insertUserRoleQuery = `
-                                                    INSERT INTO user_roles (user_id, role_id)
-                                                    VALUES (?, ?)
-                                                    `;
+                            INSERT INTO user_roles (user_id, role_id)
+                            VALUES (?, ?)
+                        `;
 
                         db.query(
                             insertUserRoleQuery,
                             [userId, roleId],
-                            async (userRoleError) => {
+                            (userRoleError) => {
                                 if (userRoleError) {
                                     return res.status(500).json({
                                         success: false,
@@ -157,9 +274,9 @@ const signup = async (req, res) => {
                                 const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
                                 const insertOtpQuery = `
-                                                        INSERT INTO email_verifications (user_id, email, otp_code, expires_at, is_verified, attempts_count)
-                                                        VALUES (?, ?, ?, ?, false, 0)
-                                                        `;
+                                    INSERT INTO email_verifications (user_id, email, otp_code, expires_at, is_verified, attempts_count)
+                                    VALUES (?, ?, ?, ?, false, 0)
+                                `;
 
                                 db.query(
                                     insertOtpQuery,
@@ -451,29 +568,72 @@ const login = async (req, res) => {
 
                 const rolesArray = roleResults.map((item) => item.role_name);
 
-                const token = jwt.sign(
-                    {
-                        id: user.id,
-                        email: user.email,
-                        roles: rolesArray
-                    },
-                    process.env.JWT_SECRET,
-                    {
-                        expiresIn: process.env.JWT_EXPIRES_IN || "1d"
-                    }
-                );
+                // const token = jwt.sign(
+                //     {
+                //         id: user.id,
+                //         email: user.email,
+                //         roles: rolesArray
+                //     },
+                //     process.env.JWT_SECRET,
+                //     {
+                //         expiresIn: process.env.JWT_EXPIRES_IN || "1d"
+                //     }
+                // );
 
-                return res.status(200).json({
-                    success: true,
-                    message: "Login successful",
-                    token,
-                    user: {
-                        id: user.id,
-                        full_name: user.full_name,
-                        email: user.email,
-                        roles: rolesArray
-                    },
+                // return res.status(200).json({
+                //     success: true,
+                //     message: "Login successful",
+                //     token,
+                //     user: {
+                //         id: user.id,
+                //         full_name: user.full_name,
+                //         email: user.email,
+                //         roles: rolesArray
+                //     },
+                // });
+
+                const checkCompaniesQuery = `SELECT cu.company_id, c.company_name, cu.company_role FROM company_users cu
+                                            JOIN companies c ON cu.company_id = c.id WHERE cu.user_id = ? `;
+
+                db.query(checkCompaniesQuery, [user.id], (companyError, companyResults) => {
+                    if (companyError) {
+                        return res.status(500).json({
+                            success: false,
+                            message: "Company access fetch failed",
+                            error: companyError.message
+                        });
+                    }
+
+                    const hasCompanies = companyResults.length > 0;
+
+                    const token = jwt.sign(
+                        {
+                            id: user.id,
+                            email: user.email,
+                            roles: rolesArray
+                        },
+                        process.env.JWT_SECRET,
+                        {
+                            expiresIn: process.env.JWT_EXPIRES_IN || "1d"
+                        }
+                    );
+
+                    return res.status(200).json({
+                        success: true,
+                        message: "Login successful",
+                        token,
+                        user: {
+                            id: user.id,
+                            full_name: user.full_name,
+                            email: user.email,
+                            roles: rolesArray,
+                            has_companies: hasCompanies,
+                            companies: companyResults
+                        },
+                    });
                 });
+
+
             });
         });
     } catch (error) {
