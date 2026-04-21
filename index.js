@@ -11,6 +11,7 @@ const companyRoutes = require("./routes/company-routes");
 const jobCategoryRoutes = require("./routes/job-category-routes");
 const jobRoutes = require("./routes/job-routes");
 const jobSkillRoutes = require("./routes/job-skill-routes");
+const jobApplicationRoutes = require("./routes/job-application-routes");
 
 const app = express();
 
@@ -26,6 +27,7 @@ app.use("/api/company", companyRoutes);
 app.use("/api/job-categories", jobCategoryRoutes);
 app.use("/api/jobs", jobRoutes);
 app.use("/api/jobs", jobSkillRoutes);
+app.use("/api", jobApplicationRoutes);
 
 app.get("/", (req, res) => {
   res.send("Job Skill Platform API running...");
