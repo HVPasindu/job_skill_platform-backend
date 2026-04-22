@@ -6,6 +6,7 @@ const controller = require("../controllers/job-application-controller");
 
 router.post("/jobs/:jobId/apply", verifyToken, controller.applyForJob);
 router.put("/job-applications/:id", verifyToken, controller.updateMyApplication);
+router.put("/job-applications/:id/withdraw", verifyToken, controller.withdrawMyApplication);
 
 router.get("/job-applications/my-applications", verifyToken, controller.getMyApplications);
 router.get("/job-applications/:id", verifyToken, controller.getSingleApplication);

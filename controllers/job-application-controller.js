@@ -333,10 +333,11 @@ const updateMyApplication = (req, res) => {
     }
 };
 
-// GET MY APPLICATIONS
-const getMyApplications = (req, res) => {
+// WITHDRAW MY APPLICATION (ONLY PENDING)
+const withdrawMyApplication = (req, res) => {
     try {
         const userId = req.user.id;
+        const applicationId = req.params.id;
 
         const getProfileQuery = `
             SELECT * FROM job_seeker_profiles
@@ -362,7 +363,134 @@ const getMyApplications = (req, res) => {
 
             const profile = profileResult[0];
 
-            const getApplicationsQuery = `
+            const getApplicationQuery = `
+                SELECT * FROM job_applications
+                WHERE id = ? AND job_seeker_profile_id = ?
+                LIMIT 1
+            `;
+
+            db.query(getApplicationQuery, [applicationId, profile.id], (applicationError, applicationResult) => {
+                if (applicationError) {
+                    return res.status(500).json({
+                        success: false,
+                        message: "Application fetch failed",
+                        error: applicationError.message
+                    });
+                }
+
+                if (applicationResult.length === 0) {
+                    return res.status(404).json({
+                        success: false,
+                        message: "Application not found"
+                    });
+                }
+
+                const application = applicationResult[0];
+
+                if (application.application_status !== "pending") {
+                    return res.status(400).json({
+                        success: false,
+                        message: "Only pending applications can be withdrawn"
+                    });
+                }
+
+                const updateApplicationQuery = `
+                    UPDATE job_applications
+                    SET application_status = ?
+                    WHERE id = ? AND job_seeker_profile_id = ?
+                `;
+
+                db.query(
+                    updateApplicationQuery,
+                    ["withdrawn", applicationId, profile.id],
+                    (updateError) => {
+                        if (updateError) {
+                            return res.status(500).json({
+                                success: false,
+                                message: "Application withdraw failed",
+                                error: updateError.message
+                            });
+                        }
+
+                        const insertHistoryQuery = `
+                            INSERT INTO application_status_history (
+                                job_application_id,
+                                old_status,
+                                new_status,
+                                changed_by_user_id,
+                                note
+                            )
+                            VALUES (?, ?, ?, ?, ?)
+                        `;
+
+                        db.query(
+                            insertHistoryQuery,
+                            [
+                                applicationId,
+                                "pending",
+                                "withdrawn",
+                                userId,
+                                "Application withdrawn by candidate"
+                            ],
+                            (historyError) => {
+                                if (historyError) {
+                                    return res.status(500).json({
+                                        success: false,
+                                        message: "Application history save failed",
+                                        error: historyError.message
+                                    });
+                                }
+
+                                return res.status(200).json({
+                                    success: true,
+                                    message: "Application withdrawn successfully"
+                                });
+                            }
+                        );
+                    }
+                );
+            });
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: "Withdraw application failed",
+            error: error.message
+        });
+    }
+};
+
+// GET MY APPLICATIONS
+const getMyApplications = (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { status } = req.query;
+
+        const getProfileQuery = `
+            SELECT * FROM job_seeker_profiles
+            WHERE user_id = ?
+            LIMIT 1
+        `;
+
+        db.query(getProfileQuery, [userId], (profileError, profileResult) => {
+            if (profileError) {
+                return res.status(500).json({
+                    success: false,
+                    message: "Profile fetch failed",
+                    error: profileError.message
+                });
+            }
+
+            if (profileResult.length === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Job seeker profile not found"
+                });
+            }
+
+            const profile = profileResult[0];
+
+            let getApplicationsQuery = `
                 SELECT
                     ja.*,
                     j.title AS job_title,
@@ -377,10 +505,18 @@ const getMyApplications = (req, res) => {
                 JOIN companies c ON j.company_id = c.id
                 LEFT JOIN resumes r ON ja.resume_id = r.id
                 WHERE ja.job_seeker_profile_id = ?
-                ORDER BY ja.id DESC
             `;
 
-            db.query(getApplicationsQuery, [profile.id], (error, result) => {
+            const queryParams = [profile.id];
+
+            if (status) {
+                getApplicationsQuery += ` AND ja.application_status = ? `;
+                queryParams.push(status);
+            }
+
+            getApplicationsQuery += ` ORDER BY ja.id DESC `;
+
+            db.query(getApplicationsQuery, queryParams, (error, result) => {
                 if (error) {
                     return res.status(500).json({
                         success: false,
@@ -490,6 +626,7 @@ const getApplicationsForJob = (req, res) => {
     try {
         const userId = req.user.id;
         const jobId = req.params.jobId;
+        const { status } = req.query;
 
         const getJobQuery = `
             SELECT * FROM jobs
@@ -537,7 +674,7 @@ const getApplicationsForJob = (req, res) => {
                     });
                 }
 
-                const getApplicationsQuery = `
+                let getApplicationsQuery = `
                     SELECT
                         ja.*,
                         u.full_name,
@@ -552,10 +689,18 @@ const getApplicationsForJob = (req, res) => {
                     JOIN users u ON jsp.user_id = u.id
                     LEFT JOIN resumes r ON ja.resume_id = r.id
                     WHERE ja.job_id = ?
-                    ORDER BY ja.id DESC
                 `;
 
-                db.query(getApplicationsQuery, [jobId], (error, result) => {
+                const queryParams = [jobId];
+
+                if (status) {
+                    getApplicationsQuery += ` AND ja.application_status = ? `;
+                    queryParams.push(status);
+                }
+
+                getApplicationsQuery += ` ORDER BY ja.id DESC `;
+
+                db.query(getApplicationsQuery, queryParams, (error, result) => {
                     if (error) {
                         return res.status(500).json({
                             success: false,
@@ -587,7 +732,14 @@ const updateApplicationStatus = (req, res) => {
         const applicationId = req.params.id;
         const { application_status, note } = req.body;
 
-        const allowedStatuses = ["pending", "reviewed", "shortlisted", "rejected", "accepted"];
+        const allowedStatuses = [
+            "pending",
+            "reviewed",
+            "shortlisted",
+            "rejected",
+            "accepted",
+            "withdrawn"
+        ];
 
         if (!application_status) {
             return res.status(400).json({
@@ -809,9 +961,11 @@ const getApplicationStatusHistory = (req, res) => {
     }
 };
 
+
 module.exports = {
     applyForJob,
     updateMyApplication,
+    withdrawMyApplication,
     getMyApplications,
     getSingleApplication,
     getApplicationsForJob,

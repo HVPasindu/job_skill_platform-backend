@@ -561,6 +561,98 @@ const deleteJob = (req, res) => {
     }
 };
 
+
+// GET ALL JOBS WITH SEARCH + FILTER
+const searchJobs = (req, res) => {
+    try {
+        const {
+            search,
+            location,
+            job_type,
+            work_mode,
+            min_salary,
+            max_salary
+        } = req.query;
+
+        let query = `
+            SELECT 
+                j.*,
+                c.company_name,
+                c.logo_url,
+                jc.category_name
+            FROM jobs j
+            JOIN companies c ON j.company_id = c.id
+            LEFT JOIN job_categories jc ON j.job_category_id = jc.id
+            WHERE j.status = 'open'
+        `;
+
+        const params = [];
+
+        // 🔍 SEARCH (title + description)
+        if (search) {
+            query += ` AND (j.title LIKE ? OR j.description LIKE ?) `;
+            params.push(`%${search}%`, `%${search}%`);
+        }
+
+        // 📍 LOCATION
+        if (location) {
+            query += ` AND j.location LIKE ? `;
+            params.push(`%${location}%`);
+        }
+
+        // 💼 JOB TYPE
+        if (job_type) {
+            query += ` AND j.job_type = ? `;
+            params.push(job_type);
+        }
+
+        // 🏢 WORK MODE
+        if (work_mode) {
+            query += ` AND j.work_mode = ? `;
+            params.push(work_mode);
+        }
+
+        // 💰 MIN SALARY
+        if (min_salary) {
+            query += ` AND j.salary_min >= ? `;
+            params.push(min_salary);
+        }
+
+        // 💰 MAX SALARY
+        if (max_salary) {
+            query += ` AND j.salary_max <= ? `;
+            params.push(max_salary);
+        }
+
+        query += ` ORDER BY j.created_at DESC `;
+
+        db.query(query, params, (err, results) => {
+            if (err) {
+                return res.status(500).json({
+                    success: false,
+                    message: "Fetch jobs failed",
+                    error: err.message
+                });
+            }
+
+            return res.status(200).json({
+                success: true,
+                jobs: results
+            });
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: "Get jobs failed",
+            error: error.message
+        });
+    }
+};
+
+
+
+
 module.exports = {
     createJob,
     getAllJobs,
@@ -568,5 +660,6 @@ module.exports = {
     getCompanyJobs,
     getSingleJob,
     updateJob,
-    deleteJob
+    deleteJob,
+    searchJobs
 };
