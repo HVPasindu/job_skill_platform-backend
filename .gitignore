@@ -6,3 +6,4 @@ uploads/profile-images/*
 !uploads/profile-images/.gitkeep
 uploads/resumes/*
 uploads/company-logos/*
+uploads/course_materials/*
