@@ -17,6 +17,7 @@ const courseCategoryRoutes = require("./routes/course-category-routes");
 const courseRoutes = require("./routes/course-routes");
 const courseMaterialRoutes = require("./routes/course-material-routes");
 const materialFileRoutes = require("./routes/course-material-file-routes");
+const courseEnrollmentRoutes = require("./routes/course-enrollment-routes");
 
 const app = express();
 
@@ -38,6 +39,7 @@ app.use("/api/course-categories", courseCategoryRoutes);
 app.use("/api/courses", courseRoutes);
 app.use("/api/courses", courseMaterialRoutes);
 app.use("/api/materials", materialFileRoutes);
+app.use("/api", courseEnrollmentRoutes);
 
 
 app.get("/", (req, res) => {
