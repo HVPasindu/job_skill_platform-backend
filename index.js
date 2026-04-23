@@ -12,6 +12,9 @@ const jobCategoryRoutes = require("./routes/job-category-routes");
 const jobRoutes = require("./routes/job-routes");
 const jobSkillRoutes = require("./routes/job-skill-routes");
 const jobApplicationRoutes = require("./routes/job-application-routes");
+const trainerRoutes = require("./routes/trainer-routes");
+const courseCategoryRoutes = require("./routes/course-category-routes");
+const courseRoutes = require("./routes/course-routes");
 
 const app = express();
 
@@ -28,6 +31,10 @@ app.use("/api/job-categories", jobCategoryRoutes);
 app.use("/api/jobs", jobRoutes);
 app.use("/api/jobs", jobSkillRoutes);
 app.use("/api", jobApplicationRoutes);
+app.use("/api/trainer", trainerRoutes);
+app.use("/api/course-categories", courseCategoryRoutes);
+app.use("/api/courses", courseRoutes);
+
 
 app.get("/", (req, res) => {
   res.send("Job Skill Platform API running...");

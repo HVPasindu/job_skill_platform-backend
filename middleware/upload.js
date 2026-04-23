@@ -11,6 +11,7 @@ const createFolderIfNotExists = (folderPath) => {
 createFolderIfNotExists("uploads/profile-images");
 createFolderIfNotExists("uploads/resumes");
 createFolderIfNotExists("uploads/company-logos");
+createFolderIfNotExists("uploads/course-thumbnails");
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
@@ -20,6 +21,8 @@ const storage = multer.diskStorage({
             cb(null, "uploads/resumes");
         } else if (file.fieldname === "company_logo") {
             cb(null, "uploads/company-logos");
+        } else if (file.fieldname === "thumbnail") {
+            cb(null, "uploads/course-thumbnails");
         } else {
             cb(new Error("Invalid field name"), null);
         }
@@ -38,7 +41,11 @@ const imageTypes = [
 ];
 
 const fileFilter = (req, file, cb) => {
-    if (file.fieldname === "profile_image" || file.fieldname === "company_logo") {
+    if (
+        file.fieldname === "profile_image" ||
+        file.fieldname === "company_logo" ||
+        file.fieldname === "thumbnail"
+    ) {
         if (imageTypes.includes(file.mimetype)) {
             cb(null, true);
         } else {
@@ -76,10 +83,12 @@ const uploadProfileImage = upload.single("profile_image");
 const uploadResumes = upload.array("resumes", 5);
 const uploadSingleResume = upload.single("resume");
 const uploadCompanyLogo = upload.single("company_logo");
+const uploadCourseThumbnail = upload.single("thumbnail");
 
 module.exports = {
     uploadProfileImage,
     uploadResumes,
     uploadSingleResume,
-    uploadCompanyLogo
+    uploadCompanyLogo,
+    uploadCourseThumbnail
 };
