@@ -12,6 +12,7 @@ createFolderIfNotExists("uploads/profile-images");
 createFolderIfNotExists("uploads/resumes");
 createFolderIfNotExists("uploads/company-logos");
 createFolderIfNotExists("uploads/course-thumbnails");
+createFolderIfNotExists("uploads/course-materials");
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
@@ -23,6 +24,8 @@ const storage = multer.diskStorage({
             cb(null, "uploads/company-logos");
         } else if (file.fieldname === "thumbnail") {
             cb(null, "uploads/course-thumbnails");
+        } else if (file.fieldname === "course_files") {
+            cb(null, "uploads/course-materials");
         } else {
             cb(new Error("Invalid field name"), null);
         }
@@ -34,6 +37,25 @@ const storage = multer.diskStorage({
 });
 
 const imageTypes = [
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/webp"
+];
+
+const resumeAllowedTypes = [
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "image/jpeg",
+    "image/jpg",
+    "image/png"
+];
+
+const courseMaterialAllowedTypes = [
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "image/jpeg",
     "image/jpg",
     "image/png",
@@ -52,19 +74,16 @@ const fileFilter = (req, file, cb) => {
             cb(new Error("Only JPG, JPEG, PNG, WEBP files are allowed"), false);
         }
     } else if (file.fieldname === "resumes" || file.fieldname === "resume") {
-        const allowedTypes = [
-            "application/pdf",
-            "application/msword",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "image/jpeg",
-            "image/jpg",
-            "image/png"
-        ];
-
-        if (allowedTypes.includes(file.mimetype)) {
+        if (resumeAllowedTypes.includes(file.mimetype)) {
             cb(null, true);
         } else {
             cb(new Error("Only PDF, DOC, DOCX, JPG, JPEG, PNG files are allowed for resumes"), false);
+        }
+    } else if (file.fieldname === "course_files") {
+        if (courseMaterialAllowedTypes.includes(file.mimetype)) {
+            cb(null, true);
+        } else {
+            cb(new Error("Only PDF, DOC, DOCX, JPG, JPEG, PNG, WEBP files are allowed for course materials"), false);
         }
     } else {
         cb(new Error("Invalid file field"), false);
@@ -84,11 +103,13 @@ const uploadResumes = upload.array("resumes", 5);
 const uploadSingleResume = upload.single("resume");
 const uploadCompanyLogo = upload.single("company_logo");
 const uploadCourseThumbnail = upload.single("thumbnail");
+const uploadCourseMaterialFiles = upload.array("course_files");
 
 module.exports = {
     uploadProfileImage,
     uploadResumes,
     uploadSingleResume,
     uploadCompanyLogo,
-    uploadCourseThumbnail
+    uploadCourseThumbnail,
+    uploadCourseMaterialFiles
 };
