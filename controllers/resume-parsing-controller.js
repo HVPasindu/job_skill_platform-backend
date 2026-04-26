@@ -2,6 +2,7 @@ const db = require("../db/db-connection");
 const fs = require("fs");
 //const pdfParse = require("pdf-parse");
 const { PDFParse } = require("pdf-parse");
+const Tesseract = require("tesseract.js");
 const mammoth = require("mammoth");
 
 const getLocalFilePathFromUrl = (fileUrl) => {
@@ -11,6 +12,16 @@ const getLocalFilePathFromUrl = (fileUrl) => {
     } catch {
         return fileUrl;
     }
+};
+
+
+const extractTextFromImage = async (filePath) => {
+    const result = await Tesseract.recognize(
+        filePath,
+        "eng"
+    );
+
+    return result.data.text;
 };
 
 // const extractTextFromFile = async (filePath, fileType) => {
@@ -32,6 +43,8 @@ const getLocalFilePathFromUrl = (fileUrl) => {
 // };
 
 
+
+
 const extractTextFromFile = async (filePath, fileType) => {
     if (fileType === "application/pdf") {
         const buffer = fs.readFileSync(filePath);
@@ -50,7 +63,16 @@ const extractTextFromFile = async (filePath, fileType) => {
         return result.value;
     }
 
-    throw new Error("Only PDF and DOCX parsing is supported now");
+    if (
+        fileType === "image/jpeg" ||
+        fileType === "image/jpg" ||
+        fileType === "image/png" ||
+        fileType === "image/webp"
+    ) {
+        return await extractTextFromImage(filePath);
+    }
+
+    throw new Error("Only PDF, DOCX and image OCR parsing is supported now");
 };
 
 const saveParseResult = (resumeId, extractedText, res, extraData = {}) => {
