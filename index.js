@@ -20,6 +20,7 @@ const materialFileRoutes = require("./routes/course-material-file-routes");
 const courseEnrollmentRoutes = require("./routes/course-enrollment-routes");
 const mentorshipSessionRoutes = require("./routes/mentorship-session-routes");
 const mentorshipParticipantRoutes = require("./routes/mentorship-participant-routes");
+const resumeParsingRoutes = require("./routes/resume-parsing-routes");
 
 const app = express();
 
@@ -44,7 +45,7 @@ app.use("/api/materials", materialFileRoutes);
 app.use("/api", courseEnrollmentRoutes);
 app.use("/api/mentorship-sessions", mentorshipSessionRoutes);
 app.use("/api/mentorship", mentorshipParticipantRoutes);
-
+app.use("/api/resumes", resumeParsingRoutes);
 
 app.get("/", (req, res) => {
   res.send("Job Skill Platform API running...");
