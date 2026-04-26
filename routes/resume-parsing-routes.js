@@ -6,6 +6,7 @@ const controller = require("../controllers/resume-parsing-controller");
 
 router.post("/parse-auto", verifyToken, controller.parseAutoResume);
 router.post("/:resumeId/parse", verifyToken, controller.parseResume);
+router.get("/parse-result/latest", verifyToken, controller.getLatestResumeParseResult);
 router.get("/:resumeId/parse-result", verifyToken, controller.getResumeParseResult);
 
 module.exports = router;
