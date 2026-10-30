@@ -23,8 +23,12 @@ const extractTextFromFile = async (filePath, fileType) => {
     if (fileType === "application/pdf") {
         const buffer = fs.readFileSync(filePath);
         const parser = new PDFParse({ data: buffer });
-        const result = await parser.getText();
-        return result.text;
+        try {
+            const result = await parser.getText();
+            return result.text;
+        } finally {
+            await parser.destroy();
+        }
     }
 
     if (
@@ -109,6 +113,8 @@ ${extractedText}
             ]
         },
         {
+            // Bound provider waiting; the frontend gives this endpoint up to 3 minutes.
+            timeout: 120000,
             headers: {
                 Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
                 "Content-Type": "application/json"

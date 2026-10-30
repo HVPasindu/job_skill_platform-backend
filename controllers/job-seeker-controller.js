@@ -2,6 +2,17 @@ const db = require("../db/db-connection");
 const fs = require("fs");
 const path = require("path");
 
+// Step 03: distinguish an omitted field from a field the user explicitly cleared.
+const editedValue = (value, previous) => value === undefined ? previous : (value === "" ? null : value);
+
+const getProfileId = (userId, res, callback) => {
+    db.query("SELECT id FROM job_seeker_profiles WHERE user_id = ?", [userId], (error, rows) => {
+        if (error) return res.status(500).json({ success: false, message: "Profile lookup failed" });
+        if (!rows.length) return res.status(404).json({ success: false, message: "Profile not found" });
+        callback(rows[0].id);
+    });
+};
+
 const allowedDocumentTypes = ["cv", "certificate", "other"];
 
 const getSafeDocumentType = (documentType, fallback = "other") => {
@@ -220,29 +231,18 @@ const updateProfile = (req, res) => {
             if (req.file) {
                 profileImagePath = req.file.path;
 
-                // old image eka thiyenawanam delete karanna
-                if (existingProfile.profile_image_url) {
-                    const oldImagePath = path.resolve(existingProfile.profile_image_url);
 
-                    fs.unlink(oldImagePath, (unlinkError) => {
-                        if (unlinkError) {
-                            console.log("Old image delete failed:", unlinkError.message);
-                        } else {
-                            console.log("Old image deleted successfully");
-                        }
-                    });
-                }
             }
 
             // 🟢 old values keep karana logic (IMPORTANT)
-            const updatedPhone = phone || existingProfile.phone;
-            const updatedCity = city || existingProfile.city;
-            const updatedCountry = country || existingProfile.country;
-            const updatedBio = bio || existingProfile.bio;
-            const updatedJobRole = preferred_job_role || existingProfile.preferred_job_role;
-            const updatedJobType = preferred_job_type || existingProfile.preferred_job_type;
-            const updatedSalary = expected_salary || existingProfile.expected_salary;
-            const updatedExperience = experience_level || existingProfile.experience_level;
+            const updatedPhone = editedValue(phone, existingProfile.phone);
+            const updatedCity = editedValue(city, existingProfile.city);
+            const updatedCountry = editedValue(country, existingProfile.country);
+            const updatedBio = editedValue(bio, existingProfile.bio);
+            const updatedJobRole = editedValue(preferred_job_role, existingProfile.preferred_job_role);
+            const updatedJobType = editedValue(preferred_job_type, existingProfile.preferred_job_type);
+            const updatedSalary = editedValue(expected_salary, existingProfile.expected_salary);
+            const updatedExperience = editedValue(experience_level, existingProfile.experience_level);
 
 
             // 🟢 profile completed logic
@@ -296,6 +296,10 @@ const updateProfile = (req, res) => {
                         });
                     }
 
+                    // Keep the old photo until the new profile values have been saved.
+                    if (req.file && existingProfile.profile_image_url) {
+                        fs.unlink(path.resolve(existingProfile.profile_image_url), () => {});
+                    }
                     return res.status(200).json({
                         success: true,
                         message: "Profile updated successfully",
@@ -440,7 +444,9 @@ const getEducations = (req, res) => {
             const jobSeekerProfileId = profileResult[0].id;
 
             const getEducationQuery = `
-                SELECT *
+                SELECT id, job_seeker_profile_id, qualification, institute_name, field_of_study,
+                    DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date,
+                    DATE_FORMAT(end_date, '%Y-%m-%d') AS end_date, grade, description, created_at, updated_at
                 FROM job_seeker_educations
                 WHERE job_seeker_profile_id = ?
                 ORDER BY id DESC
@@ -531,13 +537,13 @@ const updateEducation = (req, res) => {
 
                 const existingEducation = checkResult[0];
 
-                const updatedQualification = qualification || existingEducation.qualification;
-                const updatedInstituteName = institute_name || existingEducation.institute_name;
-                const updatedFieldOfStudy = field_of_study || existingEducation.field_of_study;
-                const updatedStartDate = start_date || existingEducation.start_date;
-                const updatedEndDate = end_date || existingEducation.end_date;
-                const updatedGrade = grade || existingEducation.grade;
-                const updatedDescription = description || existingEducation.description;
+                const updatedQualification = editedValue(qualification, existingEducation.qualification);
+                const updatedInstituteName = editedValue(institute_name, existingEducation.institute_name);
+                const updatedFieldOfStudy = editedValue(field_of_study, existingEducation.field_of_study);
+                const updatedStartDate = editedValue(start_date, existingEducation.start_date);
+                const updatedEndDate = editedValue(end_date, existingEducation.end_date);
+                const updatedGrade = editedValue(grade, existingEducation.grade);
+                const updatedDescription = editedValue(description, existingEducation.description);
 
                 const updateEducationQuery = `
                     UPDATE job_seeker_educations
@@ -744,175 +750,51 @@ const addExperience = (req, res) => {
 };
 
 const getExperiences = (req, res) => {
-    try {
-        const userId = req.user.id;
-
-        const getProfileQuery = `
-            SELECT id FROM job_seeker_profiles WHERE user_id = ?
-        `;
-
-        db.query(getProfileQuery, [userId], (err, result) => {
-            if (err) {
-                return res.status(500).json({ success: false, message: err.message });
-            }
-
-            const profileId = result[0].id;
-
-            const query = `
-                SELECT * FROM job_seeker_experiences
-                WHERE job_seeker_profile_id = ?
-                ORDER BY id DESC
-            `;
-
-            db.query(query, [profileId], (error, results) => {
-                if (error) {
-                    return res.status(500).json({
-                        success: false,
-                        message: "Fetch experience failed",
-                        error: error.message
-                    });
-                }
-
-                return res.status(200).json({
-                    success: true,
-                    experiences: results
-                });
-            });
+    getProfileId(req.user.id, res, profileId => {
+        const query = `SELECT id, job_seeker_profile_id, job_title, company_name, employment_type,
+            DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date,
+            DATE_FORMAT(end_date, '%Y-%m-%d') AS end_date, is_current, description, created_at, updated_at
+            FROM job_seeker_experiences WHERE job_seeker_profile_id = ? ORDER BY id DESC`;
+        db.query(query, [profileId], (error, experiences) => {
+            if (error) return res.status(500).json({ success: false, message: "Fetch experience failed" });
+            return res.json({ success: true, experiences });
         });
-
-    } catch (error) {
-        return res.status(500).json({
-            success: false,
-            message: "Get experience failed",
-            error: error.message
-        });
-    }
+    });
 };
 
-
 const updateExperience = (req, res) => {
-    try {
-        const userId = req.user.id;
-        const expId = req.params.id;
-
-        const {
-            job_title,
-            company_name,
-            employment_type,
-            start_date,
-            end_date,
-            is_current,
-            description
-        } = req.body;
-
-        const getProfileQuery = `SELECT id FROM job_seeker_profiles WHERE user_id = ?`;
-
-        db.query(getProfileQuery, [userId], (err, result) => {
-            if (err) return res.status(500).json({ success: false, message: err.message });
-
-            const profileId = result[0].id;
-
-            const checkQuery = `
-                SELECT * FROM job_seeker_experiences
-                WHERE id = ? AND job_seeker_profile_id = ?
-            `;
-
-            db.query(checkQuery, [expId, profileId], (err2, res2) => {
-                if (res2.length === 0) {
-                    return res.status(404).json({
-                        success: false,
-                        message: "Experience not found"
-                    });
-                }
-
-                const old = res2[0];
-
-                const updateQuery = `
-                    UPDATE job_seeker_experiences
-                    SET 
-                        job_title = ?, 
-                        company_name = ?, 
-                        employment_type = ?,
-                        start_date = ?, 
-                        end_date = ?, 
-                        is_current = ?, 
-                        description = ?
-                    WHERE id = ? AND job_seeker_profile_id = ?
-                `;
-
-                db.query(
-                    updateQuery,
-                    [
-                        job_title || old.job_title,
-                        company_name || old.company_name,
-                        employment_type || old.employment_type,
-                        start_date || old.start_date,
-                        end_date || old.end_date,
-                        is_current !== undefined ? is_current : old.is_current,
-                        description || old.description,
-                        expId,
-                        profileId
-                    ],
-                    () => {
-                        return res.status(200).json({
-                            success: true,
-                            message: "Experience updated successfully"
-                        });
-                    }
-                );
+    getProfileId(req.user.id, res, profileId => {
+        db.query("SELECT * FROM job_seeker_experiences WHERE id = ? AND job_seeker_profile_id = ?", [req.params.id, profileId], (error, rows) => {
+            if (error) return res.status(500).json({ success: false, message: "Experience lookup failed" });
+            if (!rows.length) return res.status(404).json({ success: false, message: "Experience not found" });
+            const old = rows[0];
+            const fields = req.body;
+            const title = editedValue(fields.job_title, old.job_title);
+            const company = editedValue(fields.company_name, old.company_name);
+            const start = editedValue(fields.start_date, old.start_date);
+            if (!title || !company || !start) return res.status(400).json({ success: false, message: "Job title, company name and start date are required" });
+            const current = fields.is_current === undefined ? !!old.is_current : [true, 1, "1", "true"].includes(fields.is_current);
+            const end = current ? null : editedValue(fields.end_date, old.end_date);
+            const query = `UPDATE job_seeker_experiences SET job_title = ?, company_name = ?, employment_type = ?,
+                start_date = ?, end_date = ?, is_current = ?, description = ? WHERE id = ? AND job_seeker_profile_id = ?`;
+            db.query(query, [title, company, editedValue(fields.employment_type, old.employment_type), start, end, current,
+                editedValue(fields.description, old.description), req.params.id, profileId], updateError => {
+                if (updateError) return res.status(500).json({ success: false, message: "Update experience failed" });
+                return res.json({ success: true, message: "Experience updated successfully" });
             });
         });
-
-    } catch (error) {
-        return res.status(500).json({
-            success: false,
-            message: "Update experience failed",
-            error: error.message
-        });
-    }
+    });
 };
 
 const deleteExperience = (req, res) => {
-    try {
-        const userId = req.user.id;
-        const expId = req.params.id;
-
-        const getProfileQuery = `SELECT id FROM job_seeker_profiles WHERE user_id = ?`;
-
-        db.query(getProfileQuery, [userId], (err, result) => {
-            const profileId = result[0].id;
-
-            const deleteQuery = `
-                DELETE FROM job_seeker_experiences
-                WHERE id = ? AND job_seeker_profile_id = ?
-            `;
-
-            db.query(deleteQuery, [expId, profileId], (error, result) => {
-                if (result.affectedRows === 0) {
-                    return res.status(404).json({
-                        success: false,
-                        message: "Experience not found"
-                    });
-                }
-
-                return res.status(200).json({
-                    success: true,
-                    message: "Experience deleted successfully"
-                });
-            });
+    getProfileId(req.user.id, res, profileId => {
+        db.query("DELETE FROM job_seeker_experiences WHERE id = ? AND job_seeker_profile_id = ?", [req.params.id, profileId], (error, result) => {
+            if (error) return res.status(500).json({ success: false, message: "Delete experience failed" });
+            if (!result.affectedRows) return res.status(404).json({ success: false, message: "Experience not found" });
+            return res.json({ success: true, message: "Experience deleted successfully" });
         });
-
-    } catch (error) {
-        return res.status(500).json({
-            success: false,
-            message: "Delete experience failed",
-            error: error.message
-        });
-    }
+    });
 };
-
-
-//skill
 
 const addSkill = (req, res) => {
     try {
@@ -982,7 +864,7 @@ const addSkill = (req, res) => {
                             profileId,
                             skillId,
                             proficiency_level || null,
-                            years_of_experience || null
+                            years_of_experience === "" || years_of_experience == null ? null : years_of_experience
                         ],
                         (mappingError, mappingResult) => {
                             if (mappingError) {
@@ -1174,10 +1056,7 @@ const updateSkill = (req, res) => {
                         ? proficiency_level
                         : existingSkill.proficiency_level;
 
-                const finalYearsOfExperience =
-                    years_of_experience !== undefined
-                        ? years_of_experience
-                        : existingSkill.years_of_experience;
+                const finalYearsOfExperience = editedValue(years_of_experience, existingSkill.years_of_experience);
 
                 const findSkillQuery = `
                     SELECT * FROM skills
@@ -1208,7 +1087,7 @@ const updateSkill = (req, res) => {
                             [
                                 skillId,
                                 finalProficiencyLevel || null,
-                                finalYearsOfExperience || null,
+                                finalYearsOfExperience ?? null,
                                 mappingId,
                                 profileId
                             ],
@@ -2167,13 +2046,16 @@ const updateResume = (req, res) => {
                             }
 
                             if (oldFilePath && fs.existsSync(oldFilePath)) {
-                                fs.unlinkSync(oldFilePath);
+                                try { fs.unlinkSync(oldFilePath); }
+                                catch (cleanupError) { console.log("Old document cleanup failed:", cleanupError.message); }
                             }
                         }
 
-                        return res.status(200).json({
-                            success: true,
-                            message: "Document updated successfully"
+                        const finish = () => res.status(200).json({ success: true, message: "Document updated successfully" });
+                        if (!file) return finish();
+                        db.query("DELETE FROM resume_parsing_results WHERE resume_id = ?", [resumeId], parseError => {
+                            if (parseError) return res.status(500).json({ success: false, message: "Document saved, but old analysis could not be cleared. Please re-run analysis." });
+                            return finish();
                         });
                     }
                 );
