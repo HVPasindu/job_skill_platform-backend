@@ -1,3 +1,4 @@
+const sendList = require("../utils/paginated-list");
 const db = require("../db/db-connection");
 const fs = require("fs");
 
@@ -148,19 +149,11 @@ const getMaterialFiles = (req, res) => {
             ORDER BY id ASC
         `;
 
-        db.query(query, [materialId], (err, result) => {
-            if (err) {
-                return res.status(500).json({
-                    success: false,
-                    message: "Fetch material files failed",
-                    error: err.message
-                });
-            }
-
-            return res.status(200).json({
-                success: true,
-                files: result
-            });
+        return sendList(req, res, {
+            sql: query,
+            params: [materialId],
+            key: "files",
+            countSql: "SELECT COUNT(*) AS total FROM course_material_files WHERE course_material_id = ?",
         });
     } catch (error) {
         return res.status(500).json({

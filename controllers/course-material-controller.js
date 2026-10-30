@@ -1,3 +1,4 @@
+const sendList = require("../utils/paginated-list");
 const db = require("../db/db-connection");
 
 // ADD COURSE MATERIAL (PARENT)
@@ -140,19 +141,11 @@ const getCourseMaterials = (req, res) => {
                 id ASC
         `;
 
-        db.query(query, [courseId], (error, result) => {
-            if (error) {
-                return res.status(500).json({
-                    success: false,
-                    message: "Fetch course materials failed",
-                    error: error.message
-                });
-            }
-
-            return res.status(200).json({
-                success: true,
-                materials: result
-            });
+        return sendList(req, res, {
+            sql: query,
+            params: [courseId],
+            key: "materials",
+            countSql: "SELECT COUNT(*) AS total FROM course_materials WHERE course_id = ?",
         });
     } catch (error) {
         return res.status(500).json({

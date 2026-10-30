@@ -1,3 +1,4 @@
+const sendList = require("../utils/paginated-list");
 const db = require("../db/db-connection");
 
 // CREATE SESSION
@@ -224,21 +225,13 @@ const getMyMentorshipSessions = (req, res) => {
                 params.push(status);
             }
 
-            query += ` ORDER BY ms.session_date DESC, ms.start_time DESC `;
+            query += ` ORDER BY ms.session_date DESC, ms.start_time DESC, ms.id DESC `;
 
-            db.query(query, params, (error, result) => {
-                if (error) {
-                    return res.status(500).json({
-                        success: false,
-                        message: "Fetch mentorship sessions failed",
-                        error: error.message
-                    });
-                }
-
-                return res.status(200).json({
-                    success: true,
-                    sessions: result
-                });
+            return sendList(req, res, {
+                sql: query,
+                params: params,
+                key: "sessions",
+                countSql: "SELECT COUNT(*) AS total FROM mentorship_sessions ms LEFT JOIN courses c ON ms.course_id=c.id WHERE ms.trainer_profile_id = ?" + (status ? " AND ms.status = ?" : ""),
             });
         });
     } catch (error) {
@@ -275,21 +268,13 @@ const getAllMentorshipSessions = (req, res) => {
             params.push(status);
         }
 
-        query += ` ORDER BY ms.session_date ASC, ms.start_time ASC `;
+        query += ` ORDER BY ms.session_date ASC, ms.start_time ASC, ms.id ASC `;
 
-        db.query(query, params, (error, result) => {
-            if (error) {
-                return res.status(500).json({
-                    success: false,
-                    message: "Fetch mentorship sessions failed",
-                    error: error.message
-                });
-            }
-
-            return res.status(200).json({
-                success: true,
-                sessions: result
-            });
+        return sendList(req, res, {
+            sql: query,
+            params: params,
+            key: "sessions",
+            countSql: "SELECT COUNT(*) AS total FROM mentorship_sessions ms JOIN trainer_profiles tp ON ms.trainer_profile_id=tp.id JOIN users u ON tp.user_id=u.id LEFT JOIN courses c ON ms.course_id=c.id WHERE 1=1" + (status ? " AND ms.status = ?" : ""),
         });
     } catch (error) {
         return res.status(500).json({

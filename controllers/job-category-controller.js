@@ -1,3 +1,4 @@
+const sendList = require("../utils/paginated-list");
 const db = require("../db/db-connection");
 
 // ADD CATEGORY
@@ -75,19 +76,11 @@ const getAllCategories = (req, res) => {
             ORDER BY category_name ASC
         `;
 
-        db.query(getCategoriesQuery, (error, result) => {
-            if (error) {
-                return res.status(500).json({
-                    success: false,
-                    message: "Fetch categories failed",
-                    error: error.message
-                });
-            }
-
-            return res.status(200).json({
-                success: true,
-                categories: result
-            });
+        return sendList(req, res, {
+            sql: getCategoriesQuery,
+            params: [],
+            key: "categories",
+            countSql: "SELECT COUNT(*) AS total FROM job_categories",
         });
     } catch (error) {
         return res.status(500).json({

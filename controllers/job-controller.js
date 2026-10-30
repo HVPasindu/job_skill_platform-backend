@@ -1,3 +1,4 @@
+const sendList = require("../utils/paginated-list");
 const db = require("../db/db-connection");
 
 // CREATE JOB
@@ -85,8 +86,8 @@ const createJob = (req, res) => {
               work_mode,
               job_type,
               experience_level || null,
-              salary_min || null,
-              salary_max || null,
+              salary_min ?? null,
+              salary_max ?? null,
               application_deadline || null,
               status || "open",
             ],
@@ -167,19 +168,11 @@ const getAllJobs = (req, res) => {
             ORDER BY j.id DESC
         `;
 
-    db.query(getJobsQuery, (error, result) => {
-      if (error) {
-        return res.status(500).json({
-          success: false,
-          message: "Fetch jobs failed",
-          error: error.message,
-        });
-      }
-
-      return res.status(200).json({
-        success: true,
-        jobs: result,
-      });
+    return sendList(req, res, {
+        sql: getJobsQuery,
+        params: [],
+        key: "jobs",
+        countSql: "SELECT COUNT(*) AS total FROM jobs j JOIN companies c ON j.company_id=c.id LEFT JOIN job_categories jc ON j.job_category_id=jc.id WHERE j.status=\'open\'",
     });
   } catch (error) {
     return res.status(500).json({
@@ -208,19 +201,11 @@ const getMyJobs = (req, res) => {
             ORDER BY j.id DESC
         `;
 
-    db.query(getMyJobsQuery, [userId], (error, result) => {
-      if (error) {
-        return res.status(500).json({
-          success: false,
-          message: "Fetch my jobs failed",
-          error: error.message,
-        });
-      }
-
-      return res.status(200).json({
-        success: true,
-        jobs: result,
-      });
+    return sendList(req, res, {
+        sql: getMyJobsQuery,
+        params: [userId],
+        key: "jobs",
+        countSql: "SELECT COUNT(*) AS total FROM jobs j JOIN companies c ON j.company_id=c.id LEFT JOIN job_categories jc ON j.job_category_id=jc.id WHERE j.posted_by_user_id = ?",
     });
   } catch (error) {
     return res.status(500).json({
@@ -245,23 +230,15 @@ const getCompanyJobs = (req, res) => {
             FROM jobs j
             JOIN companies c ON j.company_id = c.id
             LEFT JOIN job_categories jc ON j.job_category_id = jc.id
-            WHERE j.company_id = ?
+            WHERE j.company_id = ? AND j.status <> 'draft'
             ORDER BY j.id DESC
         `;
 
-    db.query(getCompanyJobsQuery, [companyId], (error, result) => {
-      if (error) {
-        return res.status(500).json({
-          success: false,
-          message: "Fetch company jobs failed",
-          error: error.message,
-        });
-      }
-
-      return res.status(200).json({
-        success: true,
-        jobs: result,
-      });
+    return sendList(req, res, {
+        sql: getCompanyJobsQuery,
+        params: [companyId],
+        key: "jobs",
+        countSql: "SELECT COUNT(*) AS total FROM jobs j JOIN companies c ON j.company_id=c.id LEFT JOIN job_categories jc ON j.job_category_id=jc.id WHERE j.company_id = ? AND j.status <> 'draft'",
     });
   } catch (error) {
     return res.status(500).json({
@@ -313,9 +290,14 @@ const getSingleJob = (req, res) => {
         });
       }
 
-      return res.status(200).json({
-        success: true,
-        job: result[0],
+      const respond = () => res.status(200).json({ success: true, job: result[0] });
+      if (result[0].status !== "draft") return respond();
+      if (!req.user) return res.status(404).json({ success: false, message: "Job not found" });
+      // Draft previews are available only to current company members.
+      db.query("SELECT id FROM company_users WHERE company_id = ? AND user_id = ? LIMIT 1", [result[0].company_id, req.user.id], (accessError, members) => {
+        if (accessError) return res.status(500).json({ success: false, message: "Company access check failed" });
+        if (!members.length) return res.status(404).json({ success: false, message: "Job not found" });
+        return respond();
       });
     });
   } catch (error) {
@@ -672,8 +654,13 @@ const searchJobs = async (req, res) => {
     }
     for (const key of ["job_type", "work_mode", "experience_level"])
       if (filters[key]) {
-        where += ` AND j.${key} = ? `;
-        params.push(filters[key]);
+        if (key === "work_mode" && ["onsite", "on_site"].includes(filters[key])) {
+          where += " AND j.work_mode IN (?, ?) ";
+          params.push("onsite", "on_site");
+        } else {
+          where += ` AND j.${key} = ? `;
+          params.push(filters[key]);
+        }
       }
     if (filters.category_id) {
       where += " AND j.job_category_id = ? ";

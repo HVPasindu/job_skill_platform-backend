@@ -1,3 +1,4 @@
+const sendList = require("../utils/paginated-list");
 const db = require("../db/db-connection");
 
 // ENROLL IN COURSE
@@ -170,19 +171,11 @@ const getMyEnrollments = (req, res) => {
 
             query += ` ORDER BY ce.id DESC `;
 
-            db.query(query, params, (error, result) => {
-                if (error) {
-                    return res.status(500).json({
-                        success: false,
-                        message: "Fetch enrollments failed",
-                        error: error.message
-                    });
-                }
-
-                return res.status(200).json({
-                    success: true,
-                    enrollments: result
-                });
+            return sendList(req, res, {
+                sql: query,
+                params: params,
+                key: "enrollments",
+                countSql: "SELECT COUNT(*) AS total FROM course_enrollments ce JOIN courses c ON ce.course_id=c.id JOIN trainer_profiles tp ON c.trainer_profile_id=tp.id JOIN users u ON tp.user_id=u.id WHERE ce.job_seeker_profile_id = ?" + (status ? " AND ce.enrollment_status = ?" : ""),
             });
         });
     } catch (error) {
@@ -431,19 +424,11 @@ const getCourseEnrollmentsForTrainer = (req, res) => {
 
             query += ` ORDER BY ce.id DESC `;
 
-            db.query(query, params, (error, result) => {
-                if (error) {
-                    return res.status(500).json({
-                        success: false,
-                        message: "Fetch course enrollments failed",
-                        error: error.message
-                    });
-                }
-
-                return res.status(200).json({
-                    success: true,
-                    enrollments: result
-                });
+            return sendList(req, res, {
+                sql: query,
+                params: params,
+                key: "enrollments",
+                countSql: "SELECT COUNT(*) AS total FROM course_enrollments ce JOIN job_seeker_profiles jsp ON ce.job_seeker_profile_id=jsp.id JOIN users u ON jsp.user_id=u.id WHERE ce.course_id = ?" + (status ? " AND ce.enrollment_status = ?" : ""),
             });
         });
     } catch (error) {

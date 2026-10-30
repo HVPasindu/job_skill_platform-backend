@@ -1,3 +1,4 @@
+const sendList = require("../utils/paginated-list");
 const db = require("../db/db-connection");
 
 // JOIN SESSION
@@ -167,22 +168,14 @@ const getMySessions = (req, res) => {
                 JOIN trainer_profiles tp ON ms.trainer_profile_id = tp.id
                 JOIN users u ON tp.user_id = u.id
                 WHERE mp.job_seeker_profile_id = ?
-                ORDER BY ms.session_date DESC
+                ORDER BY ms.session_date DESC, mp.id DESC
             `;
 
-            db.query(query, [profile.id], (err, result) => {
-                if (err) {
-                    return res.status(500).json({
-                        success: false,
-                        message: "Fetch failed",
-                        error: err.message
-                    });
-                }
-
-                return res.json({
-                    success: true,
-                    sessions: result
-                });
+            return sendList(req, res, {
+                sql: query,
+                params: [profile.id],
+                key: "sessions",
+                countSql: "SELECT COUNT(*) AS total FROM mentorship_participants mp JOIN mentorship_sessions ms ON mp.mentorship_session_id=ms.id JOIN trainer_profiles tp ON ms.trainer_profile_id=tp.id JOIN users u ON tp.user_id=u.id WHERE mp.job_seeker_profile_id = ?",
             });
         });
     } catch (error) {
@@ -272,22 +265,14 @@ const getParticipants = (req, res) => {
                 FROM mentorship_participants mp
                 JOIN job_seeker_profiles jsp ON mp.job_seeker_profile_id = jsp.id
                 JOIN users u ON jsp.user_id = u.id
-                WHERE mp.mentorship_session_id = ?
+                WHERE mp.mentorship_session_id = ? ORDER BY mp.id DESC
             `;
 
-            db.query(query, [sessionId], (err2, participants) => {
-                if (err2) {
-                    return res.status(500).json({
-                        success: false,
-                        message: "Fetch failed",
-                        error: err2.message
-                    });
-                }
-
-                return res.json({
-                    success: true,
-                    participants
-                });
+            return sendList(req, res, {
+                sql: query,
+                params: [sessionId],
+                key: "participants",
+                countSql: "SELECT COUNT(*) AS total FROM mentorship_participants mp JOIN job_seeker_profiles jsp ON mp.job_seeker_profile_id=jsp.id JOIN users u ON jsp.user_id=u.id WHERE mp.mentorship_session_id = ?",
             });
         });
     } catch (error) {

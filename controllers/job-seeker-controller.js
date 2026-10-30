@@ -1,3 +1,4 @@
+const sendList = require("../utils/paginated-list");
 const db = require("../db/db-connection");
 const fs = require("fs");
 const path = require("path");
@@ -452,19 +453,11 @@ const getEducations = (req, res) => {
                 ORDER BY id DESC
             `;
 
-            db.query(getEducationQuery, [jobSeekerProfileId], (educationError, educationResult) => {
-                if (educationError) {
-                    return res.status(500).json({
-                        success: false,
-                        message: "Fetch education failed",
-                        error: educationError.message
-                    });
-                }
-
-                return res.status(200).json({
-                    success: true,
-                    educations: educationResult
-                });
+            return sendList(req, res, {
+                sql: getEducationQuery,
+                params: [jobSeekerProfileId],
+                key: "educations",
+                countSql: "SELECT COUNT(*) AS total FROM job_seeker_educations WHERE job_seeker_profile_id = ?",
             });
         });
     } catch (error) {
@@ -755,9 +748,11 @@ const getExperiences = (req, res) => {
             DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date,
             DATE_FORMAT(end_date, '%Y-%m-%d') AS end_date, is_current, description, created_at, updated_at
             FROM job_seeker_experiences WHERE job_seeker_profile_id = ? ORDER BY id DESC`;
-        db.query(query, [profileId], (error, experiences) => {
-            if (error) return res.status(500).json({ success: false, message: "Fetch experience failed" });
-            return res.json({ success: true, experiences });
+        return sendList(req, res, {
+            sql: query,
+            params: [profileId],
+            key: "experiences",
+            countSql: "SELECT COUNT(*) AS total FROM job_seeker_experiences WHERE job_seeker_profile_id = ?",
         });
     });
 };
@@ -967,19 +962,11 @@ const getSkills = (req, res) => {
                 ORDER BY jss.id DESC
             `;
 
-            db.query(getSkillsQuery, [profileId], (skillsError, skillsResult) => {
-                if (skillsError) {
-                    return res.status(500).json({
-                        success: false,
-                        message: "Fetch skills failed",
-                        error: skillsError.message
-                    });
-                }
-
-                return res.status(200).json({
-                    success: true,
-                    skills: skillsResult
-                });
+            return sendList(req, res, {
+                sql: getSkillsQuery,
+                params: [profileId],
+                key: "skills",
+                countSql: "SELECT COUNT(*) AS total FROM job_seeker_skills jss JOIN skills s ON jss.skill_id=s.id WHERE jss.job_seeker_profile_id = ?",
             });
         });
     } catch (error) {
@@ -1817,19 +1804,11 @@ const getResumes = (req, res) => {
                 ORDER BY is_primary DESC, uploaded_at DESC, id DESC
             `;
 
-            db.query(getResumeQuery, params, (resumeError, resumeResult) => {
-                if (resumeError) {
-                    return res.status(500).json({
-                        success: false,
-                        message: "Fetch resumes failed",
-                        error: resumeError.message
-                    });
-                }
-
-                return res.status(200).json({
-                    success: true,
-                    resumes: resumeResult
-                });
+            return sendList(req, res, {
+                sql: getResumeQuery,
+                params: params,
+                key: "resumes",
+                countSql: "SELECT COUNT(*) AS total FROM resumes WHERE job_seeker_profile_id = ?" + (document_type && allowedDocumentTypes.includes(document_type) ? " AND document_type = ?" : ""),
             });
         });
     } catch (error) {

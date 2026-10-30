@@ -1,3 +1,4 @@
+const sendList = require("../utils/paginated-list");
 const db = require("../db/db-connection");
 
 // ADD SKILL TO JOB
@@ -215,19 +216,11 @@ const getJobSkills = (req, res) => {
             ORDER BY jrs.id DESC
         `;
 
-        db.query(query, [jobId], (err, result) => {
-            if (err) {
-                return res.status(500).json({
-                    success: false,
-                    message: "Fetch job skills failed",
-                    error: err.message
-                });
-            }
-
-            return res.status(200).json({
-                success: true,
-                skills: result
-            });
+        return sendList(req, res, {
+            sql: query,
+            params: [jobId],
+            key: "skills",
+            countSql: "SELECT COUNT(*) AS total FROM job_required_skills jrs JOIN skills s ON jrs.skill_id=s.id WHERE jrs.job_id = ?",
         });
     } catch (error) {
         return res.status(500).json({

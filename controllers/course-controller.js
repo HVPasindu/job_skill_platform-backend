@@ -1,3 +1,4 @@
+const sendList = require("../utils/paginated-list");
 const db = require("../db/db-connection");
 
 // CREATE COURSE
@@ -173,16 +174,14 @@ const getMyCourses = (req, res) => {
         FROM courses c
         JOIN trainer_profiles tp ON c.trainer_profile_id = tp.id
         WHERE tp.user_id = ?
-        ORDER BY c.created_at DESC
+        ORDER BY c.created_at DESC, c.id DESC
     `;
 
-    db.query(query, [userId], (err, result) => {
-        if (err) return res.status(500).json({ success: false, error: err.message });
-
-        res.json({
-            success: true,
-            courses: result
-        });
+    return sendList(req, res, {
+        sql: query,
+        params: [userId],
+        key: "courses",
+        countSql: "SELECT COUNT(*) AS total FROM courses c JOIN trainer_profiles tp ON c.trainer_profile_id=tp.id WHERE tp.user_id = ?",
     });
 };
 

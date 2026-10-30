@@ -1,3 +1,4 @@
+const sendList = require("../utils/paginated-list");
 const db = require("../db/db-connection");
 const withTransaction = require("../db/application-transaction");
 const validId = (value) => /^[1-9]\d{0,19}$/.test(String(value || ""));
@@ -439,19 +440,11 @@ const getApplicationsForJob = (req, res) => {
 
           getApplicationsQuery += ` ORDER BY ja.id DESC `;
 
-          db.query(getApplicationsQuery, queryParams, (error, result) => {
-            if (error) {
-              return res.status(500).json({
-                success: false,
-                message: "Fetch job applications failed",
-                error: error.message,
-              });
-            }
-
-            return res.status(200).json({
-              success: true,
-              applications: result,
-            });
+          return sendList(req, res, {
+              sql: getApplicationsQuery,
+              params: queryParams,
+              key: "applications",
+              countSql: "SELECT COUNT(*) AS total FROM job_applications ja JOIN job_seeker_profiles jsp ON ja.job_seeker_profile_id=jsp.id JOIN users u ON jsp.user_id=u.id LEFT JOIN resumes r ON ja.resume_id=r.id WHERE ja.job_id = ?" + (status ? " AND ja.application_status = ?" : ""),
           });
         },
       );
@@ -477,7 +470,6 @@ const updateApplicationStatus = async (req, res) => {
         "shortlisted",
         "rejected",
         "accepted",
-        "withdrawn",
       ].includes(application_status)
     )
       fail(400, "Invalid application status");
@@ -499,6 +491,7 @@ const updateApplicationStatus = async (req, res) => {
       );
       if (!access.length)
         fail(403, "You are not allowed to update this application status");
+      if (rows[0].application_status === "withdrawn") fail(409, "A withdrawn application cannot be reopened by an employer");
       if (rows[0].application_status === application_status) return;
       await connection.query(
         "UPDATE job_applications SET application_status = ? WHERE id = ?",

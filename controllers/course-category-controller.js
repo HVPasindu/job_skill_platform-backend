@@ -1,3 +1,4 @@
+const sendList = require("../utils/paginated-list");
 const db = require("../db/db-connection");
 
 // CREATE CATEGORY (ADMIN / TRAINER)
@@ -79,19 +80,11 @@ const getAllCourseCategories = (req, res) => {
         ORDER BY category_name ASC
     `;
 
-    db.query(query, (err, result) => {
-        if (err) {
-            return res.status(500).json({
-                success: false,
-                message: "Fetch categories failed",
-                error: err.message
-            });
-        }
-
-        return res.json({
-            success: true,
-            categories: result
-        });
+    return sendList(req, res, {
+        sql: query,
+        params: [],
+        key: "categories",
+        countSql: "SELECT COUNT(*) AS total FROM course_categories",
     });
 };
 
