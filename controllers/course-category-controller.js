@@ -6,7 +6,10 @@ const createCourseCategory = (req, res) => {
     try {
         let { category_name } = req.body;
 
-        if (!category_name) {
+        if (!req.user.roles?.some(role => ["trainer", "admin"].includes(role))) {
+            return res.status(403).json({success:false,message:"Only trainers or admins can create course categories"});
+        }
+        if (typeof category_name !== "string" || !category_name.trim() || category_name.trim().length > 100) {
             return res.status(400).json({
                 success: false,
                 message: "Category name is required"

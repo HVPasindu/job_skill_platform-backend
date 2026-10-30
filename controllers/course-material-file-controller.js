@@ -217,19 +217,17 @@ const updateMaterialFile = (req, res) => {
                 updatedFileUrl = `${req.protocol}://${req.get("host")}/${newFile.path.replace(/\\/g, "/")}`;
                 updatedExternalUrl = null;
                 updatedFileType = getFileTypeFromMimetype(newFile.mimetype);
+            }
 
-                if (existing.file_url) {
-                    try {
-                        const oldUrl = new URL(existing.file_url);
-                        const oldFilePath = decodeURIComponent(oldUrl.pathname.substring(1));
-
-                        if (fs.existsSync(oldFilePath)) {
-                            fs.unlinkSync(oldFilePath);
-                        }
-                    } catch (error) {
-                        console.log("Old material file delete failed:", error.message);
-                    }
-                }
+            if (!newFile && external_url) {
+                updatedFileUrl = null;
+                updatedFileType = file_type || "link";
+            }
+            if (!updatedFileUrl && !updatedExternalUrl) {
+                return res.status(400).json({success:false,message:"Keep a file or provide an external link"});
+            }
+            if (uploadedFiles.length > 1) {
+                return res.status(400).json({success:false,message:"Choose one replacement file"});
             }
 
             const updateQuery = `
@@ -256,6 +254,19 @@ const updateMaterialFile = (req, res) => {
                             message: "File update failed",
                             error: updateErr.message
                         });
+                    }
+
+                    if ((newFile || updatedFileUrl === null) && existing.file_url) {
+                        try {
+                            const oldUrl = new URL(existing.file_url);
+                            const oldFilePath = decodeURIComponent(oldUrl.pathname.substring(1));
+
+                            if (fs.existsSync(oldFilePath)) {
+                                fs.unlinkSync(oldFilePath);
+                            }
+                        } catch (error) {
+                            console.log("Old material file delete failed:", error.message);
+                        }
                     }
 
                     return res.status(200).json({
@@ -315,19 +326,6 @@ const deleteMaterialFile = (req, res) => {
                 });
             }
 
-            if (existing.file_url) {
-                try {
-                    const oldUrl = new URL(existing.file_url);
-                    const oldFilePath = decodeURIComponent(oldUrl.pathname.substring(1));
-
-                    if (fs.existsSync(oldFilePath)) {
-                        fs.unlinkSync(oldFilePath);
-                    }
-                } catch (error) {
-                    console.log("Material file delete failed:", error.message);
-                }
-            }
-
             db.query(`DELETE FROM course_material_files WHERE id = ?`, [fileId], (deleteErr) => {
                 if (deleteErr) {
                     return res.status(500).json({
@@ -335,6 +333,19 @@ const deleteMaterialFile = (req, res) => {
                         message: "File delete failed",
                         error: deleteErr.message
                     });
+                }
+
+                if (existing.file_url) {
+                    try {
+                        const oldUrl = new URL(existing.file_url);
+                        const oldFilePath = decodeURIComponent(oldUrl.pathname.substring(1));
+
+                        if (fs.existsSync(oldFilePath)) {
+                            fs.unlinkSync(oldFilePath);
+                        }
+                    } catch (error) {
+                        console.log("Material file delete failed:", error.message);
+                    }
                 }
 
                 return res.status(200).json({

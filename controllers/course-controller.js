@@ -17,7 +17,7 @@ const createCourse = (req, res) => {
             status
         } = req.body;
 
-        if (!title || !short_description) {
+        if (typeof title !== "string" || !title.trim() || title.trim().length > 150 || typeof short_description !== "string" || !short_description.trim() || short_description.length > 255) {
             return res.status(400).json({
                 success: false,
                 message: "title and short_description are required"
@@ -169,19 +169,22 @@ const createCourse = (req, res) => {
 const getMyCourses = (req, res) => {
     const userId = req.user.id;
 
-    const query = `
-        SELECT c.*
-        FROM courses c
-        JOIN trainer_profiles tp ON c.trainer_profile_id = tp.id
-        WHERE tp.user_id = ?
-        ORDER BY c.created_at DESC, c.id DESC
-    `;
-
+    const { search, status } = req.query;
+    const params = [userId];
+    let where = " WHERE tp.user_id = ? ";
+    if (status) {
+        if (typeof status !== "string" || !["draft", "published", "archived"].includes(status)) return res.status(400).json({success:false,message:"Invalid course status"});
+        where += " AND c.status = ? "; params.push(status);
+    }
+    if (search) {
+        if (typeof search !== "string" || search.length > 150) return res.status(400).json({success:false,message:"Invalid course search"});
+        where += " AND c.title LIKE ? "; params.push(`%${search.trim()}%`);
+    }
+    const joins = " FROM courses c JOIN trainer_profiles tp ON c.trainer_profile_id=tp.id ";
     return sendList(req, res, {
-        sql: query,
-        params: [userId],
-        key: "courses",
-        countSql: "SELECT COUNT(*) AS total FROM courses c JOIN trainer_profiles tp ON c.trainer_profile_id=tp.id WHERE tp.user_id = ?",
+        sql: "SELECT c.*" + joins + where + " ORDER BY c.created_at DESC, c.id DESC",
+        params, key: "courses",
+        countSql: "SELECT COUNT(*) AS total" + joins + where,
     });
 };
 
@@ -189,8 +192,12 @@ const getSingleCourse = (req, res) => {
     const courseId = req.params.id;
 
     const query = `
-        SELECT c.*, cc.category_name
+        SELECT c.*, cc.category_name, u.full_name AS trainer_name,
+            tp.user_id AS trainer_user_id,tp.profile_image_url AS trainer_image_url,
+            tp.specialization,tp.bio AS trainer_bio,tp.qualification,tp.years_of_experience
         FROM courses c
+        JOIN trainer_profiles tp ON c.trainer_profile_id=tp.id
+        JOIN users u ON tp.user_id=u.id
         LEFT JOIN course_categories cc ON c.course_category_id = cc.id
         WHERE c.id = ?
     `;
@@ -230,6 +237,11 @@ const updateCourse = (req, res) => {
             status
         } = req.body;
 
+        if ((title !== undefined && (typeof title !== "string" || !title.trim() || title.trim().length > 150)) ||
+            (short_description !== undefined && (typeof short_description !== "string" || !short_description.trim() || short_description.length > 255))) {
+            return res.status(400).json({success:false,message:"Use a course title (up to 150 characters) and short description (up to 255 characters)"});
+        }
+
         const getCourseQuery = `
             SELECT c.*, tp.user_id
             FROM courses c
@@ -267,26 +279,13 @@ const updateCourse = (req, res) => {
 
             if (req.file) {
                 updatedThumbnailUrl = `${req.protocol}://${req.get("host")}/${req.file.path.replace(/\\/g, "/")}`;
-
-                if (course.thumbnail_url) {
-                    try {
-                        const oldUrl = new URL(course.thumbnail_url);
-                        const oldFilePath = decodeURIComponent(oldUrl.pathname.substring(1));
-
-                        if (fs.existsSync(oldFilePath)) {
-                            fs.unlinkSync(oldFilePath);
-                        }
-                    } catch (error) {
-                        console.log("Old course thumbnail delete failed:", error.message);
-                    }
-                }
             }
 
             const updatedCourseCategoryId =
-                course_category_id !== undefined ? course_category_id : course.course_category_id;
+                course_category_id !== undefined ? (course_category_id === "" ? null : course_category_id) : course.course_category_id;
 
             const updatedTitle =
-                title !== undefined ? title : course.title;
+                title !== undefined ? title.trim() : course.title;
 
             const updatedShortDescription =
                 short_description !== undefined ? short_description : course.short_description;
@@ -306,7 +305,7 @@ const updateCourse = (req, res) => {
             const updatedStatus =
                 status !== undefined ? status : course.status;
 
-            const continueUpdate = () => {
+            const saveUpdate = () => {
                 const updateQuery = `
                     UPDATE courses
                     SET
@@ -345,6 +344,19 @@ const updateCourse = (req, res) => {
                             });
                         }
 
+                        if (req.file && course.thumbnail_url) {
+                            try {
+                                const oldUrl = new URL(course.thumbnail_url);
+                                const oldFilePath = decodeURIComponent(oldUrl.pathname.substring(1));
+
+                                if (fs.existsSync(oldFilePath)) {
+                                    fs.unlinkSync(oldFilePath);
+                                }
+                            } catch (error) {
+                                console.log("Old course thumbnail delete failed:", error.message);
+                            }
+                        }
+
                         return res.status(200).json({
                             success: true,
                             message: "Course updated successfully",
@@ -352,6 +364,15 @@ const updateCourse = (req, res) => {
                         });
                     }
                 );
+            };
+
+            const continueUpdate = () => {
+                const duplicateQuery = "SELECT id FROM courses WHERE trainer_profile_id = ? AND LOWER(title) = LOWER(?) AND id != ? LIMIT 1";
+                db.query(duplicateQuery, [course.trainer_profile_id, updatedTitle, courseId], (error, rows) => {
+                    if (error) return res.status(500).json({success:false,message:"Course title check failed"});
+                    if (rows.length) return res.status(400).json({success:false,message:"You have already created a course with this title"});
+                    return saveUpdate();
+                });
             };
 
             if (

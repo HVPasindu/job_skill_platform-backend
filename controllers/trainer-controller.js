@@ -64,7 +64,7 @@ const createTrainerProfile = (req, res) => {
                     profileImageUrl,
                     specialization || null,
                     bio || null,
-                    years_of_experience || null,
+                    years_of_experience === "" ? null : (years_of_experience ?? null),
                     qualification || null,
                     website_url || null
                 ],
@@ -193,19 +193,6 @@ const updateTrainerProfile = (req, res) => {
 
             if (req.file) {
                 updatedProfileImageUrl = `${req.protocol}://${req.get("host")}/${req.file.path.replace(/\\/g, "/")}`;
-
-                if (existingProfile.profile_image_url) {
-                    try {
-                        const oldUrl = new URL(existingProfile.profile_image_url);
-                        const oldImagePath = decodeURIComponent(oldUrl.pathname.substring(1));
-
-                        if (fs.existsSync(oldImagePath)) {
-                            fs.unlinkSync(oldImagePath);
-                        }
-                    } catch (error) {
-                        console.log("Old trainer profile image delete failed:", error.message);
-                    }
-                }
             }
 
             const updatedPhone =
@@ -218,7 +205,7 @@ const updateTrainerProfile = (req, res) => {
                 bio !== undefined ? bio : existingProfile.bio;
 
             const updatedYearsOfExperience =
-                years_of_experience !== undefined ? years_of_experience : existingProfile.years_of_experience;
+                years_of_experience !== undefined ? (years_of_experience === "" ? null : years_of_experience) : existingProfile.years_of_experience;
 
             const updatedQualification =
                 qualification !== undefined ? qualification : existingProfile.qualification;
@@ -258,6 +245,19 @@ const updateTrainerProfile = (req, res) => {
                             message: "Trainer profile update failed",
                             error: updateError.message
                         });
+                    }
+
+                    if (req.file && existingProfile.profile_image_url) {
+                        try {
+                            const oldUrl = new URL(existingProfile.profile_image_url);
+                            const oldImagePath = decodeURIComponent(oldUrl.pathname.substring(1));
+
+                            if (fs.existsSync(oldImagePath)) {
+                                fs.unlinkSync(oldImagePath);
+                            }
+                        } catch (error) {
+                            console.log("Old trainer profile image delete failed:", error.message);
+                        }
                     }
 
                     return res.status(200).json({

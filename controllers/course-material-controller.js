@@ -97,7 +97,7 @@ const createCourseMaterial = (req, res) => {
                         trimmedTitle,
                         material_type,
                         external_url || null,
-                        sort_order || null
+                        sort_order === "" ? null : (sort_order ?? null)
                     ],
                     (insertError, insertResult) => {
                         if (insertError) {
@@ -255,7 +255,7 @@ const updateCourseMaterial = (req, res) => {
                 external_url !== undefined ? external_url : existingMaterial.external_url;
 
             const updatedSortOrder =
-                sort_order !== undefined ? sort_order : existingMaterial.sort_order;
+                sort_order !== undefined ? (sort_order === "" ? null : sort_order) : existingMaterial.sort_order;
 
             const checkDuplicateQuery = `
                 SELECT * FROM course_materials
