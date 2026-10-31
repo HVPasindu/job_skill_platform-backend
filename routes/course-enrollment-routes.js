@@ -4,6 +4,10 @@ const router = express.Router();
 const verifyToken = require("../middleware/auth-middleware");
 const controller = require("../controllers/course-enrollment-controller");
 
+const actions = require("../controllers/learning-actions");
+router.get("/courses/:courseId/my-enrollment", verifyToken, actions.getMyCourseEnrollment);
+router.get("/trainer/students", verifyToken, actions.getStudents);
+
 router.post("/courses/:courseId/enroll", verifyToken, controller.enrollInCourse);
 
 router.get("/course-enrollments/my-enrollments", verifyToken, controller.getMyEnrollments);

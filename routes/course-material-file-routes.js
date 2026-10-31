@@ -8,7 +8,7 @@ const courseReadAccess = require("../middleware/course-read-access");
 const controller = require("../controllers/course-material-file-controller");
 
 router.post("/:materialId/files", verifyToken, uploadCourseMaterialFiles, controller.addMaterialFiles);
-router.get("/:materialId/files", optionalAuth, courseReadAccess(true), controller.getMaterialFiles);
+router.get("/:materialId/files", optionalAuth, courseReadAccess(true, true), controller.getMaterialFiles);
 router.put("/files/:fileId", verifyToken, uploadCourseMaterialFiles, controller.updateMaterialFile);
 router.delete("/files/:fileId", verifyToken, controller.deleteMaterialFile);
 
