@@ -1,6 +1,29 @@
+const sendList = require("../utils/paginated-list");
 const db = require("../db/db-connection");
 const fs = require("fs");
 const path = require("path");
+
+// Step 03: distinguish an omitted field from a field the user explicitly cleared.
+const editedValue = (value, previous) => value === undefined ? previous : (value === "" ? null : value);
+
+const getProfileId = (userId, res, callback) => {
+    db.query("SELECT id FROM job_seeker_profiles WHERE user_id = ?", [userId], (error, rows) => {
+        if (error) return res.status(500).json({ success: false, message: "Profile lookup failed" });
+        if (!rows.length) return res.status(404).json({ success: false, message: "Profile not found" });
+        callback(rows[0].id);
+    });
+};
+
+const allowedDocumentTypes = ["cv", "certificate", "other"];
+
+const getSafeDocumentType = (documentType, fallback = "other") => {
+    if (documentType && allowedDocumentTypes.includes(documentType)) {
+        return documentType;
+    }
+
+    return fallback;
+};
+
 
 const createProfile = (req, res) => {
     try {
@@ -209,29 +232,18 @@ const updateProfile = (req, res) => {
             if (req.file) {
                 profileImagePath = req.file.path;
 
-                // old image eka thiyenawanam delete karanna
-                if (existingProfile.profile_image_url) {
-                    const oldImagePath = path.resolve(existingProfile.profile_image_url);
 
-                    fs.unlink(oldImagePath, (unlinkError) => {
-                        if (unlinkError) {
-                            console.log("Old image delete failed:", unlinkError.message);
-                        } else {
-                            console.log("Old image deleted successfully");
-                        }
-                    });
-                }
             }
 
             // 🟢 old values keep karana logic (IMPORTANT)
-            const updatedPhone = phone || existingProfile.phone;
-            const updatedCity = city || existingProfile.city;
-            const updatedCountry = country || existingProfile.country;
-            const updatedBio = bio || existingProfile.bio;
-            const updatedJobRole = preferred_job_role || existingProfile.preferred_job_role;
-            const updatedJobType = preferred_job_type || existingProfile.preferred_job_type;
-            const updatedSalary = expected_salary || existingProfile.expected_salary;
-            const updatedExperience = experience_level || existingProfile.experience_level;
+            const updatedPhone = editedValue(phone, existingProfile.phone);
+            const updatedCity = editedValue(city, existingProfile.city);
+            const updatedCountry = editedValue(country, existingProfile.country);
+            const updatedBio = editedValue(bio, existingProfile.bio);
+            const updatedJobRole = editedValue(preferred_job_role, existingProfile.preferred_job_role);
+            const updatedJobType = editedValue(preferred_job_type, existingProfile.preferred_job_type);
+            const updatedSalary = editedValue(expected_salary, existingProfile.expected_salary);
+            const updatedExperience = editedValue(experience_level, existingProfile.experience_level);
 
 
             // 🟢 profile completed logic
@@ -285,6 +297,10 @@ const updateProfile = (req, res) => {
                         });
                     }
 
+                    // Keep the old photo until the new profile values have been saved.
+                    if (req.file && existingProfile.profile_image_url) {
+                        fs.unlink(path.resolve(existingProfile.profile_image_url), () => {});
+                    }
                     return res.status(200).json({
                         success: true,
                         message: "Profile updated successfully",
@@ -429,25 +445,19 @@ const getEducations = (req, res) => {
             const jobSeekerProfileId = profileResult[0].id;
 
             const getEducationQuery = `
-                SELECT *
+                SELECT id, job_seeker_profile_id, qualification, institute_name, field_of_study,
+                    DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date,
+                    DATE_FORMAT(end_date, '%Y-%m-%d') AS end_date, grade, description, created_at, updated_at
                 FROM job_seeker_educations
                 WHERE job_seeker_profile_id = ?
                 ORDER BY id DESC
             `;
 
-            db.query(getEducationQuery, [jobSeekerProfileId], (educationError, educationResult) => {
-                if (educationError) {
-                    return res.status(500).json({
-                        success: false,
-                        message: "Fetch education failed",
-                        error: educationError.message
-                    });
-                }
-
-                return res.status(200).json({
-                    success: true,
-                    educations: educationResult
-                });
+            return sendList(req, res, {
+                sql: getEducationQuery,
+                params: [jobSeekerProfileId],
+                key: "educations",
+                countSql: "SELECT COUNT(*) AS total FROM job_seeker_educations WHERE job_seeker_profile_id = ?",
             });
         });
     } catch (error) {
@@ -520,13 +530,13 @@ const updateEducation = (req, res) => {
 
                 const existingEducation = checkResult[0];
 
-                const updatedQualification = qualification || existingEducation.qualification;
-                const updatedInstituteName = institute_name || existingEducation.institute_name;
-                const updatedFieldOfStudy = field_of_study || existingEducation.field_of_study;
-                const updatedStartDate = start_date || existingEducation.start_date;
-                const updatedEndDate = end_date || existingEducation.end_date;
-                const updatedGrade = grade || existingEducation.grade;
-                const updatedDescription = description || existingEducation.description;
+                const updatedQualification = editedValue(qualification, existingEducation.qualification);
+                const updatedInstituteName = editedValue(institute_name, existingEducation.institute_name);
+                const updatedFieldOfStudy = editedValue(field_of_study, existingEducation.field_of_study);
+                const updatedStartDate = editedValue(start_date, existingEducation.start_date);
+                const updatedEndDate = editedValue(end_date, existingEducation.end_date);
+                const updatedGrade = editedValue(grade, existingEducation.grade);
+                const updatedDescription = editedValue(description, existingEducation.description);
 
                 const updateEducationQuery = `
                     UPDATE job_seeker_educations
@@ -733,175 +743,53 @@ const addExperience = (req, res) => {
 };
 
 const getExperiences = (req, res) => {
-    try {
-        const userId = req.user.id;
-
-        const getProfileQuery = `
-            SELECT id FROM job_seeker_profiles WHERE user_id = ?
-        `;
-
-        db.query(getProfileQuery, [userId], (err, result) => {
-            if (err) {
-                return res.status(500).json({ success: false, message: err.message });
-            }
-
-            const profileId = result[0].id;
-
-            const query = `
-                SELECT * FROM job_seeker_experiences
-                WHERE job_seeker_profile_id = ?
-                ORDER BY id DESC
-            `;
-
-            db.query(query, [profileId], (error, results) => {
-                if (error) {
-                    return res.status(500).json({
-                        success: false,
-                        message: "Fetch experience failed",
-                        error: error.message
-                    });
-                }
-
-                return res.status(200).json({
-                    success: true,
-                    experiences: results
-                });
-            });
+    getProfileId(req.user.id, res, profileId => {
+        const query = `SELECT id, job_seeker_profile_id, job_title, company_name, employment_type,
+            DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date,
+            DATE_FORMAT(end_date, '%Y-%m-%d') AS end_date, is_current, description, created_at, updated_at
+            FROM job_seeker_experiences WHERE job_seeker_profile_id = ? ORDER BY id DESC`;
+        return sendList(req, res, {
+            sql: query,
+            params: [profileId],
+            key: "experiences",
+            countSql: "SELECT COUNT(*) AS total FROM job_seeker_experiences WHERE job_seeker_profile_id = ?",
         });
-
-    } catch (error) {
-        return res.status(500).json({
-            success: false,
-            message: "Get experience failed",
-            error: error.message
-        });
-    }
+    });
 };
 
-
 const updateExperience = (req, res) => {
-    try {
-        const userId = req.user.id;
-        const expId = req.params.id;
-
-        const {
-            job_title,
-            company_name,
-            employment_type,
-            start_date,
-            end_date,
-            is_current,
-            description
-        } = req.body;
-
-        const getProfileQuery = `SELECT id FROM job_seeker_profiles WHERE user_id = ?`;
-
-        db.query(getProfileQuery, [userId], (err, result) => {
-            if (err) return res.status(500).json({ success: false, message: err.message });
-
-            const profileId = result[0].id;
-
-            const checkQuery = `
-                SELECT * FROM job_seeker_experiences
-                WHERE id = ? AND job_seeker_profile_id = ?
-            `;
-
-            db.query(checkQuery, [expId, profileId], (err2, res2) => {
-                if (res2.length === 0) {
-                    return res.status(404).json({
-                        success: false,
-                        message: "Experience not found"
-                    });
-                }
-
-                const old = res2[0];
-
-                const updateQuery = `
-                    UPDATE job_seeker_experiences
-                    SET 
-                        job_title = ?, 
-                        company_name = ?, 
-                        employment_type = ?,
-                        start_date = ?, 
-                        end_date = ?, 
-                        is_current = ?, 
-                        description = ?
-                    WHERE id = ? AND job_seeker_profile_id = ?
-                `;
-
-                db.query(
-                    updateQuery,
-                    [
-                        job_title || old.job_title,
-                        company_name || old.company_name,
-                        employment_type || old.employment_type,
-                        start_date || old.start_date,
-                        end_date || old.end_date,
-                        is_current !== undefined ? is_current : old.is_current,
-                        description || old.description,
-                        expId,
-                        profileId
-                    ],
-                    () => {
-                        return res.status(200).json({
-                            success: true,
-                            message: "Experience updated successfully"
-                        });
-                    }
-                );
+    getProfileId(req.user.id, res, profileId => {
+        db.query("SELECT * FROM job_seeker_experiences WHERE id = ? AND job_seeker_profile_id = ?", [req.params.id, profileId], (error, rows) => {
+            if (error) return res.status(500).json({ success: false, message: "Experience lookup failed" });
+            if (!rows.length) return res.status(404).json({ success: false, message: "Experience not found" });
+            const old = rows[0];
+            const fields = req.body;
+            const title = editedValue(fields.job_title, old.job_title);
+            const company = editedValue(fields.company_name, old.company_name);
+            const start = editedValue(fields.start_date, old.start_date);
+            if (!title || !company || !start) return res.status(400).json({ success: false, message: "Job title, company name and start date are required" });
+            const current = fields.is_current === undefined ? !!old.is_current : [true, 1, "1", "true"].includes(fields.is_current);
+            const end = current ? null : editedValue(fields.end_date, old.end_date);
+            const query = `UPDATE job_seeker_experiences SET job_title = ?, company_name = ?, employment_type = ?,
+                start_date = ?, end_date = ?, is_current = ?, description = ? WHERE id = ? AND job_seeker_profile_id = ?`;
+            db.query(query, [title, company, editedValue(fields.employment_type, old.employment_type), start, end, current,
+                editedValue(fields.description, old.description), req.params.id, profileId], updateError => {
+                if (updateError) return res.status(500).json({ success: false, message: "Update experience failed" });
+                return res.json({ success: true, message: "Experience updated successfully" });
             });
         });
-
-    } catch (error) {
-        return res.status(500).json({
-            success: false,
-            message: "Update experience failed",
-            error: error.message
-        });
-    }
+    });
 };
 
 const deleteExperience = (req, res) => {
-    try {
-        const userId = req.user.id;
-        const expId = req.params.id;
-
-        const getProfileQuery = `SELECT id FROM job_seeker_profiles WHERE user_id = ?`;
-
-        db.query(getProfileQuery, [userId], (err, result) => {
-            const profileId = result[0].id;
-
-            const deleteQuery = `
-                DELETE FROM job_seeker_experiences
-                WHERE id = ? AND job_seeker_profile_id = ?
-            `;
-
-            db.query(deleteQuery, [expId, profileId], (error, result) => {
-                if (result.affectedRows === 0) {
-                    return res.status(404).json({
-                        success: false,
-                        message: "Experience not found"
-                    });
-                }
-
-                return res.status(200).json({
-                    success: true,
-                    message: "Experience deleted successfully"
-                });
-            });
+    getProfileId(req.user.id, res, profileId => {
+        db.query("DELETE FROM job_seeker_experiences WHERE id = ? AND job_seeker_profile_id = ?", [req.params.id, profileId], (error, result) => {
+            if (error) return res.status(500).json({ success: false, message: "Delete experience failed" });
+            if (!result.affectedRows) return res.status(404).json({ success: false, message: "Experience not found" });
+            return res.json({ success: true, message: "Experience deleted successfully" });
         });
-
-    } catch (error) {
-        return res.status(500).json({
-            success: false,
-            message: "Delete experience failed",
-            error: error.message
-        });
-    }
+    });
 };
-
-
-//skill
 
 const addSkill = (req, res) => {
     try {
@@ -971,7 +859,7 @@ const addSkill = (req, res) => {
                             profileId,
                             skillId,
                             proficiency_level || null,
-                            years_of_experience || null
+                            years_of_experience === "" || years_of_experience == null ? null : years_of_experience
                         ],
                         (mappingError, mappingResult) => {
                             if (mappingError) {
@@ -1074,19 +962,11 @@ const getSkills = (req, res) => {
                 ORDER BY jss.id DESC
             `;
 
-            db.query(getSkillsQuery, [profileId], (skillsError, skillsResult) => {
-                if (skillsError) {
-                    return res.status(500).json({
-                        success: false,
-                        message: "Fetch skills failed",
-                        error: skillsError.message
-                    });
-                }
-
-                return res.status(200).json({
-                    success: true,
-                    skills: skillsResult
-                });
+            return sendList(req, res, {
+                sql: getSkillsQuery,
+                params: [profileId],
+                key: "skills",
+                countSql: "SELECT COUNT(*) AS total FROM job_seeker_skills jss JOIN skills s ON jss.skill_id=s.id WHERE jss.job_seeker_profile_id = ?",
             });
         });
     } catch (error) {
@@ -1163,10 +1043,7 @@ const updateSkill = (req, res) => {
                         ? proficiency_level
                         : existingSkill.proficiency_level;
 
-                const finalYearsOfExperience =
-                    years_of_experience !== undefined
-                        ? years_of_experience
-                        : existingSkill.years_of_experience;
+                const finalYearsOfExperience = editedValue(years_of_experience, existingSkill.years_of_experience);
 
                 const findSkillQuery = `
                     SELECT * FROM skills
@@ -1197,7 +1074,7 @@ const updateSkill = (req, res) => {
                             [
                                 skillId,
                                 finalProficiencyLevel || null,
-                                finalYearsOfExperience || null,
+                                finalYearsOfExperience ?? null,
                                 mappingId,
                                 profileId
                             ],
@@ -1325,12 +1202,477 @@ const deleteSkill = (req, res) => {
 };
 
 
-//resume
+// //resume
 
+// const uploadResumes = (req, res) => {
+//     try {
+//         const userId = req.user.id;
+//         const files = req.files;
+
+//         if (!files || files.length === 0) {
+//             return res.status(400).json({
+//                 success: false,
+//                 message: "No resume files uploaded"
+//             });
+//         }
+
+//         const getProfileQuery = `
+//             SELECT id FROM job_seeker_profiles
+//             WHERE user_id = ?
+//         `;
+
+//         db.query(getProfileQuery, [userId], (profileError, profileResult) => {
+//             if (profileError) {
+//                 return res.status(500).json({
+//                     success: false,
+//                     message: "Database error",
+//                     error: profileError.message
+//                 });
+//             }
+
+//             if (profileResult.length === 0) {
+//                 return res.status(404).json({
+//                     success: false,
+//                     message: "Job seeker profile not found"
+//                 });
+//             }
+
+//             const profileId = profileResult[0].id;
+
+//             const values = files.map((file) => {
+//                 const fileUrl = `${req.protocol}://${req.get("host")}/${file.path.replace(/\\/g, "/")}`;
+
+//                 return [
+//                     profileId,
+//                     file.filename,
+//                     fileUrl,
+//                     file.mimetype,
+//                     file.size,
+//                     false
+//                 ];
+//             });
+
+//             const insertResumeQuery = `
+//                 INSERT INTO resumes
+//                 (
+//                     job_seeker_profile_id,
+//                     file_name,
+//                     file_url,
+//                     file_type,
+//                     file_size,
+//                     is_primary
+//                 )
+//                 VALUES ?
+//             `;
+
+//             db.query(insertResumeQuery, [values], (insertError, insertResult) => {
+//                 if (insertError) {
+//                     return res.status(500).json({
+//                         success: false,
+//                         message: "Resume upload failed",
+//                         error: insertError.message
+//                     });
+//                 }
+
+//                 return res.status(201).json({
+//                     success: true,
+//                     message: "Resumes uploaded successfully",
+//                     uploaded_count: insertResult.affectedRows
+//                 });
+//             });
+//         });
+//     } catch (error) {
+//         return res.status(500).json({
+//             success: false,
+//             message: "Upload resumes failed",
+//             error: error.message
+//         });
+//     }
+// };
+
+// const getResumes = (req, res) => {
+//     try {
+//         const userId = req.user.id;
+
+//         const getProfileQuery = `
+//             SELECT id FROM job_seeker_profiles
+//             WHERE user_id = ?
+//         `;
+
+//         db.query(getProfileQuery, [userId], (profileError, profileResult) => {
+//             if (profileError) {
+//                 return res.status(500).json({
+//                     success: false,
+//                     message: "Database error",
+//                     error: profileError.message
+//                 });
+//             }
+
+//             if (profileResult.length === 0) {
+//                 return res.status(404).json({
+//                     success: false,
+//                     message: "Job seeker profile not found"
+//                 });
+//             }
+
+//             const profileId = profileResult[0].id;
+
+//             const getResumeQuery = `
+//                 SELECT *
+//                 FROM resumes
+//                 WHERE job_seeker_profile_id = ?
+//                 ORDER BY is_primary DESC, id DESC
+//             `;
+
+//             db.query(getResumeQuery, [profileId], (resumeError, resumeResult) => {
+//                 if (resumeError) {
+//                     return res.status(500).json({
+//                         success: false,
+//                         message: "Fetch resumes failed",
+//                         error: resumeError.message
+//                     });
+//                 }
+
+//                 return res.status(200).json({
+//                     success: true,
+//                     resumes: resumeResult
+//                 });
+//             });
+//         });
+//     } catch (error) {
+//         return res.status(500).json({
+//             success: false,
+//             message: "Get resumes failed",
+//             error: error.message
+//         });
+//     }
+// };
+
+// const setPrimaryResume = (req, res) => {
+//     try {
+//         const userId = req.user.id;
+//         const resumeId = req.params.id;
+
+//         const getProfileQuery = `
+//             SELECT id FROM job_seeker_profiles
+//             WHERE user_id = ?
+//         `;
+
+//         db.query(getProfileQuery, [userId], (profileError, profileResult) => {
+//             if (profileError) {
+//                 return res.status(500).json({
+//                     success: false,
+//                     message: "Database error",
+//                     error: profileError.message
+//                 });
+//             }
+
+//             if (profileResult.length === 0) {
+//                 return res.status(404).json({
+//                     success: false,
+//                     message: "Job seeker profile not found"
+//                 });
+//             }
+
+//             const profileId = profileResult[0].id;
+
+//             const checkResumeQuery = `
+//                 SELECT * FROM resumes
+//                 WHERE id = ? AND job_seeker_profile_id = ?
+//             `;
+
+//             db.query(checkResumeQuery, [resumeId, profileId], (checkError, checkResult) => {
+//                 if (checkError) {
+//                     return res.status(500).json({
+//                         success: false,
+//                         message: "Resume check failed",
+//                         error: checkError.message
+//                     });
+//                 }
+
+//                 if (checkResult.length === 0) {
+//                     return res.status(404).json({
+//                         success: false,
+//                         message: "Resume not found"
+//                     });
+//                 }
+
+//                 const resetPrimaryQuery = `
+//                     UPDATE resumes
+//                     SET is_primary = false
+//                     WHERE job_seeker_profile_id = ?
+//                 `;
+
+//                 db.query(resetPrimaryQuery, [profileId], (resetError) => {
+//                     if (resetError) {
+//                         return res.status(500).json({
+//                             success: false,
+//                             message: "Reset primary resume failed",
+//                             error: resetError.message
+//                         });
+//                     }
+
+//                     const setPrimaryQuery = `
+//                         UPDATE resumes
+//                         SET is_primary = true
+//                         WHERE id = ? AND job_seeker_profile_id = ?
+//                     `;
+
+//                     db.query(setPrimaryQuery, [resumeId, profileId], (setError) => {
+//                         if (setError) {
+//                             return res.status(500).json({
+//                                 success: false,
+//                                 message: "Set primary resume failed",
+//                                 error: setError.message
+//                             });
+//                         }
+
+//                         return res.status(200).json({
+//                             success: true,
+//                             message: "Primary resume updated successfully"
+//                         });
+//                     });
+//                 });
+//             });
+//         });
+//     } catch (error) {
+//         return res.status(500).json({
+//             success: false,
+//             message: "Set primary resume failed",
+//             error: error.message
+//         });
+//     }
+// };
+
+// const updateResume = (req, res) => {
+//     try {
+//         const userId = req.user.id;
+//         const resumeId = req.params.id;
+//         const file = req.file;
+
+//         if (!file) {
+//             return res.status(400).json({
+//                 success: false,
+//                 message: "No resume file uploaded"
+//             });
+//         }
+
+//         const getProfileQuery = `
+//             SELECT id FROM job_seeker_profiles
+//             WHERE user_id = ?
+//         `;
+
+//         db.query(getProfileQuery, [userId], (profileError, profileResult) => {
+//             if (profileError) {
+//                 return res.status(500).json({
+//                     success: false,
+//                     message: "Database error",
+//                     error: profileError.message
+//                 });
+//             }
+
+//             if (profileResult.length === 0) {
+//                 return res.status(404).json({
+//                     success: false,
+//                     message: "Job seeker profile not found"
+//                 });
+//             }
+
+//             const profileId = profileResult[0].id;
+
+//             const getResumeQuery = `
+//                 SELECT * FROM resumes
+//                 WHERE id = ? AND job_seeker_profile_id = ?
+//             `;
+
+//             db.query(getResumeQuery, [resumeId, profileId], (resumeError, resumeResult) => {
+//                 if (resumeError) {
+//                     return res.status(500).json({
+//                         success: false,
+//                         message: "Resume fetch failed",
+//                         error: resumeError.message
+//                     });
+//                 }
+
+//                 if (resumeResult.length === 0) {
+//                     return res.status(404).json({
+//                         success: false,
+//                         message: "Resume not found"
+//                     });
+//                 }
+
+//                 const existingResume = resumeResult[0];
+//                 const oldFileUrl = existingResume.file_url;
+
+//                 const fileUrl = `${req.protocol}://${req.get("host")}/${file.path.replace(/\\/g, "/")}`;
+
+//                 const updateResumeQuery = `
+//                     UPDATE resumes
+//                     SET
+//                         file_name = ?,
+//                         file_url = ?,
+//                         file_type = ?,
+//                         file_size = ?
+//                     WHERE id = ? AND job_seeker_profile_id = ?
+//                 `;
+
+//                 db.query(
+//                     updateResumeQuery,
+//                     [
+//                         file.filename,
+//                         fileUrl,
+//                         file.mimetype,
+//                         file.size,
+//                         resumeId,
+//                         profileId
+//                     ],
+//                     (updateError) => {
+//                         if (updateError) {
+//                             return res.status(500).json({
+//                                 success: false,
+//                                 message: "Resume update failed",
+//                                 error: updateError.message
+//                             });
+//                         }
+
+//                         let oldFilePath = null;
+
+//                         try {
+//                             const urlObj = new URL(oldFileUrl);
+//                             oldFilePath = decodeURIComponent(urlObj.pathname.substring(1));
+//                         } catch {
+//                             oldFilePath = oldFileUrl;
+//                         }
+
+//                         if (oldFilePath && fs.existsSync(oldFilePath)) {
+//                             fs.unlinkSync(oldFilePath);
+//                         }
+
+//                         return res.status(200).json({
+//                             success: true,
+//                             message: "Resume updated successfully"
+//                         });
+//                     }
+//                 );
+//             });
+//         });
+//     } catch (error) {
+//         return res.status(500).json({
+//             success: false,
+//             message: "Update resume failed",
+//             error: error.message
+//         });
+//     }
+// };
+
+// const deleteResume = (req, res) => {
+//     try {
+//         const userId = req.user.id;
+//         const resumeId = req.params.id;
+
+//         const getProfileQuery = `
+//             SELECT id FROM job_seeker_profiles
+//             WHERE user_id = ?
+//         `;
+
+//         db.query(getProfileQuery, [userId], (profileError, profileResult) => {
+//             if (profileError) {
+//                 return res.status(500).json({
+//                     success: false,
+//                     message: "Database error",
+//                     error: profileError.message
+//                 });
+//             }
+
+//             if (profileResult.length === 0) {
+//                 return res.status(404).json({
+//                     success: false,
+//                     message: "Job seeker profile not found"
+//                 });
+//             }
+
+//             const profileId = profileResult[0].id;
+
+//             const getResumeQuery = `
+//                 SELECT *
+//                 FROM resumes
+//                 WHERE id = ? AND job_seeker_profile_id = ?
+//             `;
+
+//             db.query(getResumeQuery, [resumeId, profileId], (resumeError, resumeResult) => {
+//                 if (resumeError) {
+//                     return res.status(500).json({
+//                         success: false,
+//                         message: "Resume fetch failed",
+//                         error: resumeError.message
+//                     });
+//                 }
+
+//                 if (resumeResult.length === 0) {
+//                     return res.status(404).json({
+//                         success: false,
+//                         message: "Resume not found"
+//                     });
+//                 }
+
+//                 const resume = resumeResult[0];
+//                 let filePath = null;
+
+//                 try {
+//                     const urlObj = new URL(resume.file_url);
+//                     filePath = decodeURIComponent(urlObj.pathname.substring(1));
+//                 } catch {
+//                     filePath = resume.file_url;
+//                 }
+
+//                 const deleteResumeQuery = `
+//                     DELETE FROM resumes
+//                     WHERE id = ? AND job_seeker_profile_id = ?
+//                 `;
+
+//                 db.query(deleteResumeQuery, [resumeId, profileId], (deleteError, deleteResult) => {
+//                     if (deleteError) {
+//                         return res.status(500).json({
+//                             success: false,
+//                             message: "Resume delete failed",
+//                             error: deleteError.message
+//                         });
+//                     }
+
+//                     if (deleteResult.affectedRows === 0) {
+//                         return res.status(404).json({
+//                             success: false,
+//                             message: "Resume not found"
+//                         });
+//                     }
+
+//                     if (filePath && fs.existsSync(filePath)) {
+//                         fs.unlinkSync(filePath);
+//                     }
+
+//                     return res.status(200).json({
+//                         success: true,
+//                         message: "Resume deleted successfully"
+//                     });
+//                 });
+//             });
+//         });
+//     } catch (error) {
+//         return res.status(500).json({
+//             success: false,
+//             message: "Delete resume failed",
+//             error: error.message
+//         });
+//     }
+// };
+
+
+// UPLOAD RESUMES / DOCUMENTS
 const uploadResumes = (req, res) => {
     try {
         const userId = req.user.id;
         const files = req.files;
+        const documentType = getSafeDocumentType(req.body.document_type);
 
         if (!files || files.length === 0) {
             return res.status(400).json({
@@ -1371,6 +1713,7 @@ const uploadResumes = (req, res) => {
                     fileUrl,
                     file.mimetype,
                     file.size,
+                    documentType,
                     false
                 ];
             });
@@ -1383,6 +1726,7 @@ const uploadResumes = (req, res) => {
                     file_url,
                     file_type,
                     file_size,
+                    document_type,
                     is_primary
                 )
                 VALUES ?
@@ -1399,8 +1743,9 @@ const uploadResumes = (req, res) => {
 
                 return res.status(201).json({
                     success: true,
-                    message: "Resumes uploaded successfully",
-                    uploaded_count: insertResult.affectedRows
+                    message: "Documents uploaded successfully",
+                    uploaded_count: insertResult.affectedRows,
+                    document_type: documentType
                 });
             });
         });
@@ -1413,9 +1758,11 @@ const uploadResumes = (req, res) => {
     }
 };
 
+// GET RESUMES / DOCUMENTS
 const getResumes = (req, res) => {
     try {
         const userId = req.user.id;
+        const { document_type } = req.query;
 
         const getProfileQuery = `
             SELECT id FROM job_seeker_profiles
@@ -1440,26 +1787,28 @@ const getResumes = (req, res) => {
 
             const profileId = profileResult[0].id;
 
-            const getResumeQuery = `
+            let getResumeQuery = `
                 SELECT *
                 FROM resumes
                 WHERE job_seeker_profile_id = ?
-                ORDER BY is_primary DESC, id DESC
             `;
 
-            db.query(getResumeQuery, [profileId], (resumeError, resumeResult) => {
-                if (resumeError) {
-                    return res.status(500).json({
-                        success: false,
-                        message: "Fetch resumes failed",
-                        error: resumeError.message
-                    });
-                }
+            const params = [profileId];
 
-                return res.status(200).json({
-                    success: true,
-                    resumes: resumeResult
-                });
+            if (document_type && allowedDocumentTypes.includes(document_type)) {
+                getResumeQuery += ` AND document_type = ? `;
+                params.push(document_type);
+            }
+
+            getResumeQuery += `
+                ORDER BY is_primary DESC, uploaded_at DESC, id DESC
+            `;
+
+            return sendList(req, res, {
+                sql: getResumeQuery,
+                params: params,
+                key: "resumes",
+                countSql: "SELECT COUNT(*) AS total FROM resumes WHERE job_seeker_profile_id = ?" + (document_type && allowedDocumentTypes.includes(document_type) ? " AND document_type = ?" : ""),
             });
         });
     } catch (error) {
@@ -1471,6 +1820,7 @@ const getResumes = (req, res) => {
     }
 };
 
+// SET PRIMARY DOCUMENT
 const setPrimaryResume = (req, res) => {
     try {
         const userId = req.user.id;
@@ -1552,7 +1902,7 @@ const setPrimaryResume = (req, res) => {
 
                         return res.status(200).json({
                             success: true,
-                            message: "Primary resume updated successfully"
+                            message: "Primary document updated successfully"
                         });
                     });
                 });
@@ -1567,18 +1917,13 @@ const setPrimaryResume = (req, res) => {
     }
 };
 
+// UPDATE RESUME / DOCUMENT
 const updateResume = (req, res) => {
     try {
         const userId = req.user.id;
         const resumeId = req.params.id;
         const file = req.file;
-
-        if (!file) {
-            return res.status(400).json({
-                success: false,
-                message: "No resume file uploaded"
-            });
-        }
+        const { document_type } = req.body;
 
         const getProfileQuery = `
             SELECT id FROM job_seeker_profiles
@@ -1625,9 +1970,18 @@ const updateResume = (req, res) => {
                 }
 
                 const existingResume = resumeResult[0];
-                const oldFileUrl = existingResume.file_url;
 
-                const fileUrl = `${req.protocol}://${req.get("host")}/${file.path.replace(/\\/g, "/")}`;
+                const updatedDocumentType =
+                    document_type !== undefined
+                        ? getSafeDocumentType(document_type, existingResume.document_type)
+                        : existingResume.document_type;
+
+                const updatedFileName = file ? file.filename : existingResume.file_name;
+                const updatedFileUrl = file
+                    ? `${req.protocol}://${req.get("host")}/${file.path.replace(/\\/g, "/")}`
+                    : existingResume.file_url;
+                const updatedFileType = file ? file.mimetype : existingResume.file_type;
+                const updatedFileSize = file ? file.size : existingResume.file_size;
 
                 const updateResumeQuery = `
                     UPDATE resumes
@@ -1635,17 +1989,19 @@ const updateResume = (req, res) => {
                         file_name = ?,
                         file_url = ?,
                         file_type = ?,
-                        file_size = ?
+                        file_size = ?,
+                        document_type = ?
                     WHERE id = ? AND job_seeker_profile_id = ?
                 `;
 
                 db.query(
                     updateResumeQuery,
                     [
-                        file.filename,
-                        fileUrl,
-                        file.mimetype,
-                        file.size,
+                        updatedFileName,
+                        updatedFileUrl,
+                        updatedFileType,
+                        updatedFileSize,
+                        updatedDocumentType,
                         resumeId,
                         profileId
                     ],
@@ -1658,22 +2014,27 @@ const updateResume = (req, res) => {
                             });
                         }
 
-                        let oldFilePath = null;
+                        if (file && existingResume.file_url) {
+                            let oldFilePath = null;
 
-                        try {
-                            const urlObj = new URL(oldFileUrl);
-                            oldFilePath = decodeURIComponent(urlObj.pathname.substring(1));
-                        } catch {
-                            oldFilePath = oldFileUrl;
+                            try {
+                                const urlObj = new URL(existingResume.file_url);
+                                oldFilePath = decodeURIComponent(urlObj.pathname.substring(1));
+                            } catch {
+                                oldFilePath = existingResume.file_url;
+                            }
+
+                            if (oldFilePath && fs.existsSync(oldFilePath)) {
+                                try { fs.unlinkSync(oldFilePath); }
+                                catch (cleanupError) { console.log("Old document cleanup failed:", cleanupError.message); }
+                            }
                         }
 
-                        if (oldFilePath && fs.existsSync(oldFilePath)) {
-                            fs.unlinkSync(oldFilePath);
-                        }
-
-                        return res.status(200).json({
-                            success: true,
-                            message: "Resume updated successfully"
+                        const finish = () => res.status(200).json({ success: true, message: "Document updated successfully" });
+                        if (!file) return finish();
+                        db.query("DELETE FROM resume_parsing_results WHERE resume_id = ?", [resumeId], parseError => {
+                            if (parseError) return res.status(500).json({ success: false, message: "Document saved, but old analysis could not be cleared. Please re-run analysis." });
+                            return finish();
                         });
                     }
                 );
@@ -1688,6 +2049,7 @@ const updateResume = (req, res) => {
     }
 };
 
+// DELETE RESUME / DOCUMENT
 const deleteResume = (req, res) => {
     try {
         const userId = req.user.id;
@@ -1775,7 +2137,7 @@ const deleteResume = (req, res) => {
 
                     return res.status(200).json({
                         success: true,
-                        message: "Resume deleted successfully"
+                        message: "Document deleted successfully"
                     });
                 });
             });
@@ -1788,7 +2150,6 @@ const deleteResume = (req, res) => {
         });
     }
 };
-
 
 module.exports = {
     createProfile,

@@ -644,9 +644,124 @@ const login = async (req, res) => {
         });
     }
 };
+
+const becomeTrainer = (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        const getTrainerRoleQuery = `
+            SELECT id FROM roles
+            WHERE role_name = 'trainer'
+            LIMIT 1
+        `;
+
+        db.query(getTrainerRoleQuery, (roleError, roleResult) => {
+            if (roleError) {
+                return res.status(500).json({
+                    success: false,
+                    message: "Trainer role fetch failed",
+                    error: roleError.message
+                });
+            }
+
+            if (roleResult.length === 0) {
+                return res.status(500).json({
+                    success: false,
+                    message: "Trainer role not found"
+                });
+            }
+
+            const trainerRoleId = roleResult[0].id;
+
+            const checkExistingRoleQuery = `
+                SELECT * FROM user_roles
+                WHERE user_id = ? AND role_id = ?
+                LIMIT 1
+            `;
+
+            db.query(checkExistingRoleQuery, [userId, trainerRoleId], (checkError, checkResult) => {
+                if (checkError) {
+                    return res.status(500).json({
+                        success: false,
+                        message: "Role check failed",
+                        error: checkError.message
+                    });
+                }
+
+                if (checkResult.length > 0) {
+                    return res.status(400).json({
+                        success: false,
+                        message: "User already has trainer role"
+                    });
+                }
+
+                const insertRoleQuery = `
+                    INSERT INTO user_roles (user_id, role_id)
+                    VALUES (?, ?)
+                `;
+
+                db.query(insertRoleQuery, [userId, trainerRoleId], (insertError) => {
+                    if (insertError) {
+                        return res.status(500).json({
+                            success: false,
+                            message: "Trainer role add failed",
+                            error: insertError.message
+                        });
+                    }
+
+                    const getUserRolesQuery = `
+                        SELECT r.role_name
+                        FROM user_roles ur
+                        JOIN roles r ON ur.role_id = r.id
+                        WHERE ur.user_id = ?
+                    `;
+
+                    db.query(getUserRolesQuery, [userId], (rolesError, rolesResult) => {
+                        if (rolesError) {
+                            return res.status(500).json({
+                                success: false,
+                                message: "Updated roles fetch failed",
+                                error: rolesError.message
+                            });
+                        }
+
+                        const rolesArray = rolesResult.map((item) => item.role_name);
+
+                        const newToken = jwt.sign(
+                            {
+                                id: req.user.id,
+                                email: req.user.email,
+                                roles: rolesArray
+                            },
+                            process.env.JWT_SECRET,
+                            {
+                                expiresIn: process.env.JWT_EXPIRES_IN || "1d"
+                            }
+                        );
+
+                        return res.status(200).json({
+                            success: true,
+                            message: "Trainer role added successfully",
+                            token: newToken,
+                            roles: rolesArray
+                        });
+                    });
+                });
+            });
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: "Become trainer failed",
+            error: error.message
+        });
+    }
+};
+
 module.exports = {
     signup,
     verifyOtp,
     resendOtp,
     login,
+    becomeTrainer
 };

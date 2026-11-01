@@ -5,3 +5,6 @@ node_modules/
 uploads/profile-images/*
 !uploads/profile-images/.gitkeep
 uploads/resumes/*
+uploads/company-logos/*
+uploads/course-materials/*
+uploads/course-thumbnails/*

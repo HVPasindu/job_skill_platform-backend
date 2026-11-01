@@ -1,5 +1,7 @@
+const sendList = require("../utils/paginated-list");
 const db = require("../db/db-connection");
 const fs = require("fs");
+const edited = (value, old) => value === undefined ? old : (value === "" ? null : value);
 const { sendCompanyAddedEmail } = require("../services/send-email");
 
 const createCompany = (req, res) => {
@@ -215,19 +217,11 @@ const getMyCompanies = (req, res) => {
             ORDER BY cu.is_primary_contact DESC, c.id DESC
         `;
 
-        db.query(getMyCompaniesQuery, [userId], (error, result) => {
-            if (error) {
-                return res.status(500).json({
-                    success: false,
-                    message: "Fetch companies failed",
-                    error: error.message
-                });
-            }
-
-            return res.status(200).json({
-                success: true,
-                companies: result
-            });
+        return sendList(req, res, {
+            sql: getMyCompaniesQuery,
+            params: [userId],
+            key: "companies",
+            countSql: "SELECT COUNT(*) AS total FROM company_users cu JOIN companies c ON cu.company_id=c.id WHERE cu.user_id = ?",
         });
     } catch (error) {
         return res.status(500).json({
@@ -366,19 +360,6 @@ const updateCompany = (req, res) => {
 
                 if (req.file) {
                     updatedLogoUrl = `${req.protocol}://${req.get("host")}/${req.file.path.replace(/\\/g, "/")}`;
-
-                    if (oldCompany.logo_url) {
-                        try {
-                            const oldUrl = new URL(oldCompany.logo_url);
-                            const oldLogoPath = decodeURIComponent(oldUrl.pathname.substring(1));
-
-                            if (fs.existsSync(oldLogoPath)) {
-                                fs.unlinkSync(oldLogoPath);
-                            }
-                        } catch (error) {
-                            console.log("Old company logo delete failed:", error.message);
-                        }
-                    }
                 }
 
                 const updateCompanyQuery = `
@@ -401,17 +382,17 @@ const updateCompany = (req, res) => {
                 db.query(
                     updateCompanyQuery,
                     [
-                        company_name || oldCompany.company_name,
-                        company_email || oldCompany.company_email,
-                        company_phone || oldCompany.company_phone,
-                        website_url || oldCompany.website_url,
+                        edited(company_name, oldCompany.company_name),
+                        edited(company_email, oldCompany.company_email),
+                        edited(company_phone, oldCompany.company_phone),
+                        edited(website_url, oldCompany.website_url),
                         updatedLogoUrl,
-                        industry || oldCompany.industry,
-                        company_size || oldCompany.company_size,
-                        description || oldCompany.description,
-                        address_line || oldCompany.address_line,
-                        city || oldCompany.city,
-                        country || oldCompany.country,
+                        edited(industry, oldCompany.industry),
+                        edited(company_size, oldCompany.company_size),
+                        edited(description, oldCompany.description),
+                        edited(address_line, oldCompany.address_line),
+                        edited(city, oldCompany.city),
+                        edited(country, oldCompany.country),
                         companyId
                     ],
                     (updateError) => {
@@ -423,6 +404,16 @@ const updateCompany = (req, res) => {
                             });
                         }
 
+                        // Keep the existing logo if the database update failed.
+                        if (req.file && oldCompany.logo_url) {
+                            try {
+                                const oldUrl = new URL(oldCompany.logo_url);
+                                const oldLogoPath = decodeURIComponent(oldUrl.pathname.substring(1));
+                                if (fs.existsSync(oldLogoPath)) fs.unlinkSync(oldLogoPath);
+                            } catch (error) {
+                                console.log("Old company logo delete failed:", error.message);
+                            }
+                        }
                         return res.status(200).json({
                             success: true,
                             message: "Company updated successfully",
@@ -454,6 +445,10 @@ const addUserToCompany = (req, res) => {
             department,
             bio
         } = req.body;
+        if (company_role !== undefined && !["owner", "employee"].includes(company_role)) {
+            return res.status(400).json({ success: false, message: "Invalid company role" });
+        }
+
 
         if (!email) {
             return res.status(400).json({
@@ -713,19 +708,11 @@ const getCompanyUsers = (req, res) => {
                 ORDER BY cu.is_primary_contact DESC, cu.id DESC
             `;
 
-            db.query(getUsersQuery, [companyId], (error, result) => {
-                if (error) {
-                    return res.status(500).json({
-                        success: false,
-                        message: "Fetch company users failed",
-                        error: error.message
-                    });
-                }
-
-                return res.status(200).json({
-                    success: true,
-                    users: result
-                });
+            return sendList(req, res, {
+                sql: getUsersQuery,
+                params: [companyId],
+                key: "users",
+                countSql: "SELECT COUNT(*) AS total FROM company_users cu JOIN users u ON cu.user_id=u.id WHERE cu.company_id = ?",
             });
         });
     } catch (error) {
@@ -750,6 +737,10 @@ const updateCompanyUser = (req, res) => {
             department,
             bio
         } = req.body;
+        if (company_role !== undefined && !["owner", "employee"].includes(company_role)) {
+            return res.status(400).json({ success: false, message: "Invalid company role" });
+        }
+
 
         const getCompanyUserQuery = `
             SELECT * FROM company_users

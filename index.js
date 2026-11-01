@@ -9,6 +9,19 @@ const authRoutes = require("./routes/auth-routes");
 const jobSeekerRoutes = require("./routes/job-seeker-routes");
 const companyRoutes = require("./routes/company-routes");
 const jobCategoryRoutes = require("./routes/job-category-routes");
+const jobRoutes = require("./routes/job-routes");
+const jobSkillRoutes = require("./routes/job-skill-routes");
+const jobApplicationRoutes = require("./routes/job-application-routes");
+const trainerRoutes = require("./routes/trainer-routes");
+const courseCategoryRoutes = require("./routes/course-category-routes");
+const courseRoutes = require("./routes/course-routes");
+const courseMaterialRoutes = require("./routes/course-material-routes");
+const materialFileRoutes = require("./routes/course-material-file-routes");
+const courseEnrollmentRoutes = require("./routes/course-enrollment-routes");
+const mentorshipSessionRoutes = require("./routes/mentorship-session-routes");
+const mentorshipParticipantRoutes = require("./routes/mentorship-participant-routes");
+const resumeParsingRoutes = require("./routes/resume-parsing-routes");
+const chatbotRoutes = require("./routes/chatbot-routes");
 
 const app = express();
 
@@ -22,6 +35,19 @@ app.use("/api/auth", authRoutes);
 app.use("/api/job-seeker", jobSeekerRoutes);
 app.use("/api/company", companyRoutes);
 app.use("/api/job-categories", jobCategoryRoutes);
+app.use("/api/jobs", jobRoutes);
+app.use("/api/jobs", jobSkillRoutes);
+app.use("/api", jobApplicationRoutes);
+app.use("/api/trainer", trainerRoutes);
+app.use("/api/course-categories", courseCategoryRoutes);
+app.use("/api/courses", courseRoutes);
+app.use("/api/courses", courseMaterialRoutes);
+app.use("/api/materials", materialFileRoutes);
+app.use("/api", courseEnrollmentRoutes);
+app.use("/api/mentorship-sessions", mentorshipSessionRoutes);
+app.use("/api/mentorship", mentorshipParticipantRoutes);
+app.use("/api/resumes", resumeParsingRoutes);
+app.use("/api/chatbot", chatbotRoutes);
 
 app.get("/", (req, res) => {
   res.send("Job Skill Platform API running...");

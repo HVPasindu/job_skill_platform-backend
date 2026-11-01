@@ -1,0 +1,20 @@
+const express = require("express");
+const router = express.Router();
+
+const verifyToken = require("../middleware/auth-middleware");
+const controller = require("../controllers/course-enrollment-controller");
+
+const actions = require("../controllers/learning-actions");
+router.get("/courses/:courseId/my-enrollment", verifyToken, actions.getMyCourseEnrollment);
+router.get("/trainer/students", verifyToken, actions.getStudents);
+
+router.post("/courses/:courseId/enroll", verifyToken, controller.enrollInCourse);
+
+router.get("/course-enrollments/my-enrollments", verifyToken, controller.getMyEnrollments);
+router.get("/course-enrollments/:id", verifyToken, controller.getSingleEnrollment);
+router.put("/course-enrollments/:id/cancel", verifyToken, controller.cancelEnrollment);
+
+router.get("/courses/:courseId/enrollments", verifyToken, controller.getCourseEnrollmentsForTrainer);
+router.put("/course-enrollments/:id/complete", verifyToken, controller.markEnrollmentCompleted);
+
+module.exports = router;
