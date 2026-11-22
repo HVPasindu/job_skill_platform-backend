@@ -25,6 +25,9 @@ const chatbotRoutes = require("./routes/chatbot-routes");
 
 const app = express();
 
+// Trust only the local Nginx reverse proxy.
+app.set("trust proxy", "loopback");
+
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
