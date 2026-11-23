@@ -117,6 +117,22 @@ jobs:
             }
           '
           
+          # Recover only the exact workflow file staged by the previous
+          # failed --track branch switch. Refuse to alter any different
+          # staged file, changed contents, or existing tracked file.
+          # This does not reset, clean, or modify application/user data.
+          
+          RECOVERY_PATH=".github/workflows/github-actions-demo.yml"
+          
+          if [[ "$(git diff --cached --name-status)" == $'A\t.github/workflows/github-actions-demo.yml' ]] \
+            && [[ -z "$(git ls-tree -r --name-only HEAD -- "$RECOVERY_PATH")" ]] \
+            && git diff --quiet -- "$RECOVERY_PATH" \
+            && git rev-parse -q --verify "origin/main:$RECOVERY_PATH" >/dev/null \
+            && [[ "$(git rev-parse ":$RECOVERY_PATH")" == "$(git rev-parse "origin/main:$RECOVERY_PATH")" ]]; then
+            echo "Recovering the verified staged workflow left by the failed branch switch."
+            git restore --source=HEAD --staged --worktree -- "$RECOVERY_PATH"
+          fi
+          
           # Reject staged changes.
           
           if ! git diff --cached --quiet; then
@@ -598,7 +614,7 @@ jobs:
           
           else
           
-            git switch --track -c main origin/main
+            git switch --no-track -c main origin/main
           
           fi
           
