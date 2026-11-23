@@ -1,0 +1,765 @@
+
+name: Backend CD
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: skilljob-backend-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy backend to EC2
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Configure SSH
+        shell: bash
+        env:
+          EC2_SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          EC2_KNOWN_HOSTS: ${{ secrets.EC2_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+
+          : "${EC2_SSH_PRIVATE_KEY:?GitHub Secret EC2_SSH_PRIVATE_KEY is missing}"
+          : "${EC2_KNOWN_HOSTS:?GitHub Secret EC2_KNOWN_HOSTS is missing}"
+
+          install -m 700 -d "$HOME/.ssh"
+
+          printf '%s\n' "$EC2_SSH_PRIVATE_KEY" > "$HOME/.ssh/skilljob_ec2"
+          chmod 600 "$HOME/.ssh/skilljob_ec2"
+
+          printf '%s\n' "$EC2_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+          ssh-keygen -y -f "$HOME/.ssh/skilljob_ec2" >/dev/null
+
+          echo "SSH key configuration completed."
+
+      - name: Deploy main branch to production
+        shell: bash
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_SSH_PORT: ${{ secrets.EC2_SSH_PORT || '22' }}
+        run: |
+          set -euo pipefail
+
+          : "${EC2_HOST:?GitHub Secret EC2_HOST is missing}"
+          : "${EC2_USER:?GitHub Secret EC2_USER is missing}"
+          : "${EC2_SSH_PORT:?GitHub Secret EC2_SSH_PORT is missing}"
+
+          ssh \
+            -i "$HOME/.ssh/skilljob_ec2" \
+            -p "$EC2_SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=3 \
+            "$EC2_USER@$EC2_HOST" 'bash -s' <<'REMOTE'
+
+          set -Eeuo pipefail
+
+          # Load the exact Node.js and PM2 installation
+          # already verified on the production EC2 server.
+
+          export NVM_DIR="/home/ubuntu/.nvm"
+          export PATH="/home/ubuntu/.nvm/versions/node/v24.22.3/bin:$PATH"
+
+          echo "===== RUNTIME INFORMATION ====="
+
+          echo "Node.js: $(command -v node) ($(node --version))"
+          echo "NPM: $(command -v npm) ($(npm --version))"
+          echo "PM2: $(command -v pm2) ($(pm2 --version))"
+
+          APP_DIR="/home/ubuntu/skilljob-backend"
+
+          cd "$APP_DIR"
+
+          echo "===== PRODUCTION DEPLOYMENT PRE-FLIGHT ====="
+
+          # Verify essential production files.
+
+          test -f .env || {
+            echo "ERROR: Production .env is missing."
+            exit 1
+          }
+
+          test -d uploads || {
+            echo "ERROR: Production uploads directory is missing."
+            exit 1
+          }
+
+          test -f package.json || {
+            echo "ERROR: package.json is missing."
+            exit 1
+          }
+
+          test -f index.js || {
+            echo "ERROR: index.js is missing."
+            exit 1
+          }
+
+          # Verify the existing PM2 application.
+
+          pm2 describe skilljob-backend >/dev/null 2>&1 || {
+            echo "ERROR: PM2 process skilljob-backend was not found."
+            exit 1
+          }
+
+          # Ensure the production .env is never tracked by Git.
+
+          if git ls-files --error-unmatch .env >/dev/null 2>&1; then
+            echo "ERROR: .env is tracked by Git."
+            exit 1
+          fi
+
+          if ! git check-ignore -q .env; then
+            echo "ERROR: .env is not protected by .gitignore."
+            exit 1
+          fi
+
+          # Preserve the known server-side bcrypt script permission.
+          # No dependency installation will be performed.
+
+          node -e '
+            const p = require("./package.json");
+
+            if (p.allowScripts?.["bcrypt@6.0.0"] !== true) {
+              console.error("ERROR: Expected bcrypt allowScripts setting is missing.");
+              process.exit(1);
+            }
+          '
+
+          # Reject staged changes.
+
+          if ! git diff --cached --quiet; then
+            echo "ERROR: Staged server changes detected."
+            git status --short
+            exit 1
+          fi
+
+          # Allow only the known server-side package.json modification.
+
+          if ! git diff --quiet HEAD -- . ':(exclude)package.json'; then
+            echo "ERROR: Unexpected tracked server modifications detected."
+            git status --short
+            exit 1
+          fi
+
+          OLD_BRANCH="$(git branch --show-current)"
+          OLD_COMMIT="$(git rev-parse HEAD)"
+
+          echo "Original branch: $OLD_BRANCH"
+          echo "Original commit: $OLD_COMMIT"
+
+          # Deployment state.
+
+          TEMP_DIR="$(mktemp -d)"
+
+          DEPLOYMENT_SWITCHED="false"
+          BACKEND_STOPPED="false"
+          DEPLOYMENT_SUCCEEDED="false"
+
+          # Automatic rollback handler.
+          # Restore the previous checkout and restart the previous backend
+          # whenever deployment fails after the production process is stopped.
+
+          rollback_on_failure() {
+            local exit_code=$?
+
+            trap - EXIT
+
+            local ROLLBACK_SAFE="true"
+
+            if [[ "$exit_code" -ne 0 ]] \
+              && [[ "$DEPLOYMENT_SUCCEEDED" != "true" ]]; then
+
+              echo "=========================================="
+              echo "DEPLOYMENT FAILED"
+              echo "STARTING AUTOMATIC ROLLBACK"
+              echo "=========================================="
+
+              # Restore the previous Git checkout.
+
+              if [[ "$DEPLOYMENT_SWITCHED" == "true" ]]; then
+
+                if [[ -n "$OLD_BRANCH" ]]; then
+                  git switch "$OLD_BRANCH" || true
+                fi
+
+                CURRENT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)"
+
+                if [[ "$CURRENT_COMMIT" != "$OLD_COMMIT" ]]; then
+
+                  if ! git switch --detach "$OLD_COMMIT"; then
+                    echo "ERROR: Previous Git commit could not be restored."
+                    ROLLBACK_SAFE="false"
+                  fi
+
+                fi
+
+              fi
+
+              # Restore the original server .env.
+
+              if [[ -f "$TEMP_DIR/env.backup" ]]; then
+
+                if ! cp -p "$TEMP_DIR/env.backup" .env; then
+                  echo "ERROR: Could not restore .env."
+                  ROLLBACK_SAFE="false"
+                fi
+
+              fi
+
+              # Restore the original server package.json.
+
+              if [[ -f "$TEMP_DIR/package.json.backup" ]]; then
+
+                if ! cp -p "$TEMP_DIR/package.json.backup" package.json; then
+                  echo "ERROR: Could not restore package.json."
+                  ROLLBACK_SAFE="false"
+                fi
+
+              fi
+
+              # Restart only when the previous code and configuration
+              # have been successfully restored.
+
+              if [[ "$DEPLOYMENT_SWITCHED" == "true" ]] \
+                || [[ "$BACKEND_STOPPED" == "true" ]]; then
+
+                if [[ "$ROLLBACK_SAFE" == "true" ]]; then
+
+                  echo "===== RESTARTING PREVIOUS BACKEND ====="
+
+                  if pm2 restart skilljob-backend; then
+
+                    pm2 save || true
+
+                    sleep 3
+
+                    ROLLBACK_RESPONSE="$(curl \
+                      --fail \
+                      --silent \
+                      --show-error \
+                      --max-time 8 \
+                      "http://127.0.0.1:3000/api/courses?page=1&per_page=1")" || true
+
+                    if printf '%s' "${ROLLBACK_RESPONSE:-}" \
+                      | grep -Eq '"success"[[:space:]]*:[[:space:]]*true'; then
+
+                      echo "SUCCESS: Previous backend is responding."
+
+                    else
+
+                      echo "WARNING: Previous backend health check failed."
+
+                    fi
+
+                  else
+
+                    echo "ERROR: Previous backend could not be restarted."
+
+                  fi
+
+                else
+
+                  echo "ERROR: Rollback could not be verified."
+                  echo "Stopping backend to avoid running uncertain code."
+
+                  pm2 stop skilljob-backend || true
+
+                fi
+
+                pm2 logs skilljob-backend --lines 40 --nostream || true
+
+              fi
+
+              echo "===== ROLLBACK PROCEDURE FINISHED ====="
+
+            fi
+
+            rm -rf "$TEMP_DIR"
+
+            exit "$exit_code"
+          }
+
+          trap rollback_on_failure EXIT
+
+          # Verify current server-side repository state.
+
+          echo "===== GIT PRE-FLIGHT ====="
+
+          git status --short
+
+          # Fetch only the production main branch.
+
+          git fetch --no-tags origin \
+            refs/heads/main:refs/remotes/origin/main
+
+          # Never deploy a main branch containing a .env file.
+
+          if [ -n "$(git ls-tree -r --name-only origin/main -- .env)" ]; then
+            echo "ERROR: origin/main tracks .env."
+            echo "Deployment stopped to protect production secrets."
+            exit 1
+          fi
+
+          # Only allow a fast-forward deployment.
+
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "ERROR: Server commit is not an ancestor of origin/main."
+            echo "Manual Git reconciliation is required."
+            exit 1
+          fi
+
+          # Protect every tracked upload file.
+
+          if ! git diff --quiet HEAD origin/main -- uploads; then
+            echo "ERROR: Incoming main branch changes uploads/."
+            echo "Deployment stopped to protect uploaded files."
+            exit 1
+          fi
+
+          # Dependency changes require separate review.
+
+          if ! git diff --quiet HEAD origin/main -- package.json package-lock.json; then
+            echo "ERROR: Dependency files changed in main."
+            echo "Separate dependency deployment review is required."
+            exit 1
+          fi
+
+          echo "Git pre-flight checks passed."
+
+          # ==================================================
+          # AUTOMATIC MYSQL DATABASE BACKUP
+          # ==================================================
+
+          echo "=========================================="
+          echo "STARTING AUTOMATIC DATABASE BACKUP"
+          echo "=========================================="
+
+          # Verify required backup tools.
+
+          command -v mysqldump >/dev/null || {
+            echo "ERROR: mysqldump is unavailable."
+            exit 1
+          }
+
+          command -v mysql >/dev/null || {
+            echo "ERROR: mysql client is unavailable."
+            exit 1
+          }
+
+          command -v gzip >/dev/null || {
+            echo "ERROR: gzip is unavailable."
+            exit 1
+          }
+
+          # Read database credentials directly from the
+          # production .env using dotenv.parse.
+          # Never print database credentials.
+
+          MYSQL_CNF="$TEMP_DIR/mysql-client.cnf"
+
+          DB_NAME="$(node - "$MYSQL_CNF" <<'NODE'
+          const fs = require("fs");
+          const dotenv = require("dotenv");
+
+          const env = dotenv.parse(fs.readFileSync(".env"));
+          const outputPath = process.argv[2];
+
+          const required = ["DB_HOST", "DB_USER", "DB_PASSWORD", "DB_NAME"];
+
+          for (const key of required) {
+            if (!env[key]) {
+              throw new Error(`Missing required database setting: ${key}`);
+            }
+          }
+
+          const host = env.DB_HOST;
+          const user = env.DB_USER;
+          const password = env.DB_PASSWORD;
+          const database = env.DB_NAME;
+          const port = env.DB_PORT || "3306";
+
+          if (!["localhost", "127.0.0.1"].includes(host)) {
+            throw new Error("Unexpected database host. Local MySQL is required.");
+          }
+
+          if (!/^[A-Za-z0-9_][A-Za-z0-9_-]*$/.test(database)) {
+            throw new Error("Unexpected database name format.");
+          }
+
+          if (!/^[0-9]+$/.test(port) || Number(port) < 1 || Number(port) > 65535) {
+            throw new Error("Invalid database port.");
+          }
+
+          if (/[\r\n]/.test(user) || /[\r\n]/.test(password)) {
+            throw new Error("Unsupported newline in database credentials.");
+          }
+
+          function quoteOption(value) {
+            return '"' + String(value)
+              .replace(/\\/g, "\\\\")
+              .replace(/"/g, '\\"')
+              .replace(/\r/g, "\\r")
+              .replace(/\n/g, "\\n") + '"';
+          }
+
+          const config = [
+            "[client]",
+            `user=${quoteOption(user)}`,
+            `password=${quoteOption(password)}`,
+            `host=${quoteOption(host)}`,
+            `port=${port}`,
+            ""
+          ].join("\n");
+
+          fs.writeFileSync(outputPath, config, {
+            mode: 0o600,
+            flag: "wx"
+          });
+
+          fs.chmodSync(outputPath, 0o600);
+
+          process.stdout.write(database);
+          NODE
+          )"
+
+          chmod 600 "$MYSQL_CNF"
+
+          echo "Database configuration loaded securely."
+          echo "Database name: $DB_NAME"
+
+          # Prepare persistent backup directory.
+          # Existing backups will never be automatically deleted.
+
+          BACKUP_DIR="/home/ubuntu/skilljob-backups"
+
+          mkdir -p "$BACKUP_DIR"
+          chmod 700 "$BACKUP_DIR"
+
+          # Check available disk space.
+          # Require at least 100 MB before starting the dump.
+
+          AVAILABLE_KB="$(df -Pk "$BACKUP_DIR" | awk 'NR == 2 {print $4}')"
+
+          if ! [[ "$AVAILABLE_KB" =~ ^[0-9]+$ ]] \
+            || [ "$AVAILABLE_KB" -lt 102400 ]; then
+
+            echo "ERROR: Insufficient disk space for database backup."
+            exit 1
+
+          fi
+
+          echo "Available disk space: ${AVAILABLE_KB} KB"
+
+          # Create unique backup filename.
+
+          BACKUP_TIMESTAMP="$(date -u +%Y%m%d_%H%M%S)"
+
+          BACKUP_FILE="$BACKUP_DIR/${DB_NAME}_${BACKUP_TIMESTAMP}_$$.sql.gz"
+
+          BACKUP_TMP="$TEMP_DIR/database-backup.sql.gz"
+
+          echo "Backup destination: $BACKUP_FILE"
+
+          # Create compressed MySQL backup.
+          # Database credentials are read from the protected
+          # temporary MySQL option file.
+
+          echo "===== CREATING MYSQL BACKUP ====="
+
+          mysqldump \
+            --defaults-extra-file="$MYSQL_CNF" \
+            --single-transaction \
+            --quick \
+            --routines \
+            --triggers \
+            --events \
+            --hex-blob \
+            --default-character-set=utf8mb4 \
+            --no-tablespaces \
+            "$DB_NAME" | gzip -c > "$BACKUP_TMP"
+
+          # Verify compressed archive integrity.
+
+          echo "===== VERIFYING BACKUP ARCHIVE ====="
+
+          gzip -t "$BACKUP_TMP"
+
+          if [ ! -s "$BACKUP_TMP" ]; then
+            echo "ERROR: Backup file is empty."
+            exit 1
+          fi
+
+          # Compare live database table count against dump.
+
+          LIVE_TABLE_COUNT="$(mysql \
+            --defaults-extra-file="$MYSQL_CNF" \
+            --batch \
+            --skip-column-names \
+            --execute="SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE';" \
+            "$DB_NAME")"
+
+          BACKUP_TABLE_COUNT="$(gzip -cd "$BACKUP_TMP" \
+            | grep -c '^-- Table structure for table ' || true)"
+
+          if ! [[ "$LIVE_TABLE_COUNT" =~ ^[0-9]+$ ]] \
+            || ! [[ "$BACKUP_TABLE_COUNT" =~ ^[0-9]+$ ]] \
+            || [ "$LIVE_TABLE_COUNT" -lt 1 ]; then
+
+            echo "ERROR: Invalid database or backup table count."
+            exit 1
+
+          fi
+
+          echo "Live database tables: $LIVE_TABLE_COUNT"
+          echo "Backup tables: $BACKUP_TABLE_COUNT"
+
+          if [ "$LIVE_TABLE_COUNT" -ne "$BACKUP_TABLE_COUNT" ]; then
+            echo "ERROR: Database backup table count mismatch."
+            exit 1
+          fi
+
+          # Verify final mysqldump completion marker.
+
+          if ! gzip -cd "$BACKUP_TMP" \
+            | tail -n 5 \
+            | grep -q '^-- Dump completed on '; then
+
+            echo "ERROR: Database dump completion marker is missing."
+            exit 1
+
+          fi
+
+          # Publish verified backup to persistent directory.
+
+          mv "$BACKUP_TMP" "$BACKUP_FILE"
+
+          chmod 600 "$BACKUP_FILE"
+
+          # Calculate backup checksum.
+
+          BACKUP_SHA256="$(sha256sum "$BACKUP_FILE" | awk '{print $1}')"
+
+          echo "===== DATABASE BACKUP VERIFIED ====="
+
+          ls -lh "$BACKUP_FILE"
+
+          echo "Database tables verified: $BACKUP_TABLE_COUNT"
+          echo "SHA256: $BACKUP_SHA256"
+
+          # Remove temporary credentials immediately.
+          # The EXIT cleanup also removes TEMP_DIR on failure.
+
+          rm -f "$MYSQL_CNF"
+
+          echo "SUCCESS: Database backup completed."
+          echo "SUCCESS: Existing backups preserved."
+          echo "SUCCESS: No database changes performed."
+
+          # ==================================================
+          # END DATABASE BACKUP
+          # ==================================================
+
+          # Stop the backend briefly before changing production files.
+
+          echo "===== STOPPING BACKEND FOR DEPLOYMENT ====="
+
+          BACKEND_STOPPED="true"
+
+          pm2 stop skilljob-backend
+
+          # Save exact server-only files before deployment.
+
+          cp -p .env "$TEMP_DIR/env.backup"
+          cp -p package.json "$TEMP_DIR/package.json.backup"
+
+          # Record production environment and package fingerprints.
+
+          ENV_HASH_BEFORE="$(sha256sum .env | awk '{print $1}')"
+
+          PACKAGE_HASH_BEFORE="$(sha256sum package.json | awk '{print $1}')"
+
+          # Record the complete uploads inventory.
+
+          UPLOAD_COUNT_BEFORE="$(find uploads -type f | wc -l | tr -d ' ')"
+
+          UPLOAD_BYTES_BEFORE="$(du -sb uploads | awk '{print $1}')"
+
+          find uploads -type f -print0 \
+            | sort -z \
+            | xargs -0 -r sha256sum \
+            > "$TEMP_DIR/uploads-before.sha256"
+
+          echo "Existing upload files: $UPLOAD_COUNT_BEFORE"
+          echo "Existing upload bytes: $UPLOAD_BYTES_BEFORE"
+
+          # Switch to the production main branch.
+
+          echo "===== SWITCHING SERVER CHECKOUT TO MAIN ====="
+
+          DEPLOYMENT_SWITCHED="true"
+
+          if git show-ref --verify --quiet refs/heads/main; then
+
+            git switch main
+
+            git merge --ff-only origin/main
+
+          else
+
+            git switch --track -c main origin/main
+
+          fi
+
+          # Confirm exact production commit.
+
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+            echo "ERROR: Production checkout does not match origin/main."
+            exit 1
+          fi
+
+          echo "===== VERIFYING PERSISTENT SERVER DATA ====="
+
+          ENV_HASH_AFTER="$(sha256sum .env | awk '{print $1}')"
+
+          PACKAGE_HASH_AFTER="$(sha256sum package.json | awk '{print $1}')"
+
+          UPLOAD_COUNT_AFTER="$(find uploads -type f | wc -l | tr -d ' ')"
+
+          UPLOAD_BYTES_AFTER="$(du -sb uploads | awk '{print $1}')"
+
+          find uploads -type f -print0 \
+            | sort -z \
+            | xargs -0 -r sha256sum \
+            > "$TEMP_DIR/uploads-after.sha256"
+
+          # Verify .env was preserved.
+
+          if [ "$ENV_HASH_BEFORE" != "$ENV_HASH_AFTER" ]; then
+            echo "ERROR: Production .env changed."
+            exit 1
+          fi
+
+          # Verify server-only package.json was preserved.
+
+          if [ "$PACKAGE_HASH_BEFORE" != "$PACKAGE_HASH_AFTER" ]; then
+            echo "ERROR: Server package.json changed."
+            exit 1
+          fi
+
+          # Verify upload count, total bytes and every file checksum.
+
+          if [ "$UPLOAD_COUNT_BEFORE" != "$UPLOAD_COUNT_AFTER" ] \
+            || [ "$UPLOAD_BYTES_BEFORE" != "$UPLOAD_BYTES_AFTER" ] \
+            || ! cmp -s "$TEMP_DIR/uploads-before.sha256" "$TEMP_DIR/uploads-after.sha256"; then
+
+            echo "ERROR: Upload inventory or file contents changed."
+            echo "Deployment stopped. Investigate uploads immediately."
+            exit 1
+
+          fi
+
+          echo "SUCCESS: .env preserved."
+          echo "SUCCESS: package.json preserved."
+          echo "SUCCESS: All $UPLOAD_COUNT_AFTER upload files verified."
+          echo "SUCCESS: Upload checksums match."
+
+          echo "===== RESTARTING UPDATED BACKEND ====="
+
+          pm2 restart skilljob-backend
+
+          BACKEND_STOPPED="false"
+
+          # Verify both API root and database-backed endpoint.
+
+          echo "===== PRODUCTION HEALTH CHECK ====="
+
+          HEALTHY="false"
+
+          for attempt in 1 2 3 4 5 6; do
+
+            if curl \
+                --fail \
+                --silent \
+                --show-error \
+                --max-time 5 \
+                http://127.0.0.1:3000/ >/dev/null \
+              && COURSE_RESPONSE="$(curl \
+                --fail \
+                --silent \
+                --show-error \
+                --max-time 8 \
+                "http://127.0.0.1:3000/api/courses?page=1&per_page=1")" \
+              && printf '%s' "$COURSE_RESPONSE" \
+                | grep -Eq '"success"[[:space:]]*:[[:space:]]*true'; then
+
+              HEALTHY="true"
+
+              echo "SUCCESS: API root is responding."
+              echo "SUCCESS: Database-backed course endpoint is responding."
+
+              break
+
+            fi
+
+            echo "Health check attempt $attempt failed."
+
+            sleep 3
+
+          done
+
+          if [ "$HEALTHY" != "true" ]; then
+
+            echo "ERROR: Production health checks failed."
+            echo "Automatic rollback will restore the previous version."
+
+            exit 1
+
+          fi
+
+          # Save the verified PM2 process state.
+
+          echo "===== SAVING PM2 PROCESS STATE ====="
+
+          pm2 save
+
+          # Mark deployment successful only after every check passes.
+
+          DEPLOYMENT_SUCCEEDED="true"
+
+          echo "=========================================="
+          echo "BACKEND DEPLOYMENT SUCCESSFUL"
+          echo "=========================================="
+
+          echo "Branch: $(git branch --show-current)"
+          echo "Deployed commit: $(git rev-parse --short HEAD)"
+          echo "Uploads preserved: $UPLOAD_COUNT_AFTER files"
+
+          echo "Production .env preserved."
+          echo "Server package.json preserved."
+
+          echo "Database backup: $BACKUP_FILE"
+          echo "Database tables backed up: $BACKUP_TABLE_COUNT"
+          echo "Database backup SHA256: $BACKUP_SHA256"
+
+          echo "Database migration commands were not run."
+          echo "Database reset commands were not run."
+          echo "Database seed commands were not run."
+
+          echo "PM2 process saved."
+
+          REMOTE
